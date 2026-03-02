@@ -67,11 +67,13 @@ if len(config["samples"])==2:
     input_list = [config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"], config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][1] + '_{pid}' + config["bam_suffix"]]
     output_list = [config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', config["telomerehunter_dir"] + '/{pid}/' + config["samples"][1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam']
     shell_command_addition = "-ibc {input[1]} -pl "
+    output_exists_check = "[ -s {output[0]} ] && [ -s {output[1]} ]"
     node_addition = ",nodes=1:ppn=2"
 elif len(config["samples"])==1:
     input_list = [config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"], config["results_per_pid_dir"]]
     output_list = [config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam']
     shell_command_addition = ""
+    output_exists_check = "[ -s {output[0]} ]"
     node_addition = ""
 
 
@@ -87,7 +89,7 @@ rule run_telomerehunter:
         sleep_sec_limit=config["sleep_sec_limit"]
     version: "1.0"
     shell:
-        "if [ -s {output[0]} ] " + ("&& [ -s {output[1]} ] " if len(config["samples"])==2 else "") + "; then "
+        "if " + output_exists_check + "; then "
         "echo 'Using existing TelomereHunter intratelomeric BAM(s), skipping TelomereHunter run.'; "
         "else "
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
