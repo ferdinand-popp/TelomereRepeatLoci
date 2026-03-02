@@ -45,7 +45,6 @@ def main():
     parser.add_argument("clipped_reads_file")
     parser.add_argument("discordant_read_file")
     parser.add_argument("outfile")
-    parser.add_argument("function_file", nargs="?")
     args = parser.parse_args()
 
     with open(args.candidate_region_file, newline="") as handle:

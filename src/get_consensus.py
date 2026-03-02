@@ -8,6 +8,7 @@ import pysam
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
+TELOMERE_REPEAT_LENGTH = 6
 
 
 def parse_int(value):
@@ -63,25 +64,25 @@ def microhomology(seq, consensus, repeat_forward, strand):
 
     if strand == "+":
         indice_match = pos_match[0] + 1
-        junction_repeat_ref = repeat_forward[: 6 - indice_match + 1]
-        junction_repeat_tel = repeat_forward[6 - indice_match + 1 : 6]
+        junction_repeat_ref = repeat_forward[: TELOMERE_REPEAT_LENGTH - indice_match + 1]
+        junction_repeat_tel = repeat_forward[TELOMERE_REPEAT_LENGTH - indice_match + 1 : TELOMERE_REPEAT_LENGTH]
         if junction_repeat_tel != consensus[: indice_match - 1]:
             repeat_junction_wrong = True
         repeats_ref = (repeat_forward * 3 + junction_repeat_ref)[::-1]
         seq_homology = seq[::-1]
     elif strand == "-":
         last = pos_match[-1]
-        indice_match = len(consensus) + 1 - (last + 6)
+        indice_match = len(consensus) + 1 - (last + TELOMERE_REPEAT_LENGTH)
         junction_repeat_tel = repeat_forward[:indice_match]
-        junction_repeat_ref = repeat_forward[indice_match:6]
-        if junction_repeat_tel != consensus[last + 6 : len(consensus) + 1]:
+        junction_repeat_ref = repeat_forward[indice_match:TELOMERE_REPEAT_LENGTH]
+        if junction_repeat_tel != consensus[last + TELOMERE_REPEAT_LENGTH : len(consensus) + 1]:
             repeat_junction_wrong = True
         repeats_ref = junction_repeat_ref + repeat_forward * 3
         seq_homology = seq
     else:
         return "?"
 
-    if indice_match > 6 or repeat_junction_wrong:
+    if indice_match > TELOMERE_REPEAT_LENGTH or repeat_junction_wrong:
         return "?"
 
     cntr = 0

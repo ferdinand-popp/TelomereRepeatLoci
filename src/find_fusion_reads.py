@@ -11,6 +11,7 @@ import pysam
 TELOMERE_PATTERN = re.compile(r"TTAGGG|CCCTAA")
 READ_CONSUME_OPS = {0, 1, 4, 7, 8}
 REF_CONSUME_OPS = {0, 2, 3, 7, 8}
+WINDOW_EXTENSION = 300
 
 
 def read_pair_label(read):
@@ -105,7 +106,6 @@ def main():
     parser.add_argument("candidate_region_file")
     parser.add_argument("bamfile")
     parser.add_argument("outfile")
-    parser.add_argument("function_file", nargs="?")
     args = parser.parse_args()
 
     with open(args.candidate_region_file, newline="") as handle:
@@ -123,8 +123,8 @@ def main():
         except ValueError:
             continue
 
-        start0 = max(0, chrom_start - 301)
-        end0 = chrom_end + 300
+        start0 = max(0, chrom_start - WINDOW_EXTENSION - 1)
+        end0 = chrom_end + WINDOW_EXTENSION
 
         # soft-clipped reads
         for read in bam.fetch(chrom, start0, end0):

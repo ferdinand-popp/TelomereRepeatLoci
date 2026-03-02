@@ -5,6 +5,8 @@ import csv
 import os
 from collections import Counter
 
+MIN_MATE_MAPQ = 30
+
 
 def read_discordant_counts(path, sample):
     counts = Counter()
@@ -15,7 +17,7 @@ def read_discordant_counts(path, sample):
         reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             try:
-                if float(row.get("mate_mapq", 0)) <= 30:
+                if float(row.get("mate_mapq", 0)) <= MIN_MATE_MAPQ:
                     continue
             except (TypeError, ValueError):
                 continue

@@ -11,7 +11,6 @@ def main():
     parser.add_argument("tumor_discordant_read_lower_limit", type=float)
     parser.add_argument("control_discordant_read_upper_limit", type=float)
     parser.add_argument("consider_blacklist")
-    parser.add_argument("function_file", nargs="?")
     args = parser.parse_args()
 
     with open(args.window_file, newline="") as in_handle:
