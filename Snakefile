@@ -87,10 +87,13 @@ rule run_telomerehunter:
         sleep_sec_limit=config["sleep_sec_limit"]
     version: "1.0"
     shell:
+        "if [ -s {output[0]} ] " + ("&& [ -s {output[1]} ] " if len(config["samples"])==2 else "") + "; then "
+        "echo 'Using existing TelomereHunter intratelomeric BAM(s), skipping TelomereHunter run.'; "
+        "else "
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
         "set +u; source activate telomereEnv; set -u; "
-        "module load R/3.4.2; "
-        "time telomerehunter -p {wildcards.pid} -o " + config["telomerehunter_dir"] + " -ibt {input[0]} " + shell_command_addition + "-pff all"
+        "time telomerehunter -p {wildcards.pid} -o " + config["telomerehunter_dir"] + " -ibt {input[0]} " + shell_command_addition + "-pff all; "
+        "fi"
 
 
 
@@ -173,7 +176,7 @@ rule count_discordant_reads:
         jobname="{pid}_count_discordant_reads"
     version: "1.0"
     shell:
-        "R-3.2.2 --no-save --slave --args -t " + tumor_input + " -c " + control_input + " -b {params.blacklist} -o {output.windowTable} " + " -f " + config["R_function_file"] + " < " + config["src_dir"] + "/count_discordant_reads.R"
+        "python " + config["src_dir"] + "/count_discordant_reads.py -t " + tumor_input + " -c " + control_input + " -b {params.blacklist} -o {output.windowTable}"
 
 
 
@@ -192,7 +195,7 @@ rule get_candidate_regions:
         jobname="{pid}_get_candidate_regions"
     version: "1.0"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.windowTable} {output.candidateRegions} " + str(config["tumor_discordant_read_lower_limit"]) + " " + str(config["control_discordant_read_upper_limit"]) + " " + str(config["consider_blacklist"]) + " " + config["R_function_file"] + " < " + config["src_dir"] + "/get_candidate_regions.R"
+        "python " + config["src_dir"] + "/get_candidate_regions.py {input.windowTable} {output.candidateRegions} " + str(config["tumor_discordant_read_lower_limit"]) + " " + str(config["control_discordant_read_upper_limit"]) + " " + str(config["consider_blacklist"])
 
 
 
@@ -217,7 +220,7 @@ rule find_fusion_reads:
         jobname="{pid}_find_fusion_reads"
     version: "1.0"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.bam} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/find_fusion_reads.R"
+        "python " + config["src_dir"] + "/find_fusion_reads.py {input.candidateRegions} {input.bam} {output}"
 
 
 rule predict_insertion_sites:
@@ -234,7 +237,7 @@ rule predict_insertion_sites:
     version: "1.0"
     message: "--- {wildcards.pid}: predict insertion sites ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/predict_insertion_sites.R"
+        "python " + config["src_dir"] + "/predict_insertion_sites.py {input.candidateRegions} {input.clippedReads} {input.discordantReads} {output}"
 
 
 
@@ -251,11 +254,12 @@ rule get_consensus:
     params:
         walltime="0:10:00",
         mem="500m",
-        jobname="{pid}_get_consensus"
+        jobname="{pid}_get_consensus",
+        reference=config.get("reference_fasta", "")
     version: "1.0"
     message: "--- {wildcards.pid}: get consensus ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/get_consensus.R"
+        "python " + config["src_dir"] + "/get_consensus.py {input.candidateRegions} {input.clippedReads} {output} --reference {params.reference}"
 
 
 
@@ -275,7 +279,7 @@ rule make_bed_for_visualization:
         jobname="{pid}_make_bed"
     version: "1.0"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} {wildcards.pid}" + " < " + config["src_dir"] + "/make_bed_for_visualization.R"
+        "python " + config["src_dir"] + "/make_bed_for_visualization.py {input.candidateRegions} {output.outfile1} {output.outfile2} {wildcards.pid}"
 
 
 if len(config["samples"])==2:
@@ -341,4 +345,3 @@ elif len(config["samples"])==1:
                    --clipped_reads_tumor {input.clipped_reads_tumor} \
                    --prefix " + config["telomereinsertion_dir"] + "/plots/zoomed_in/ \
                    --outfile {output}"
-
