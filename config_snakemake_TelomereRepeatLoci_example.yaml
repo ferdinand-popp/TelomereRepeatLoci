@@ -61,4 +61,4 @@ sleep_sec_limit: 300
 # source directories
 #------------------------------------------------
 src_dir: <SRC_DIR_FOR_SNAKEMAKE_WORKFLOW>/src
-R_function_file: <PATH_TO_FUNCTION_FILE>/functions.R
+reference_fasta: <PATH_TO_REFERENCE_FASTA>/hs37d5.fa
