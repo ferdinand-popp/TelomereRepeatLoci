@@ -14,10 +14,10 @@
 #              - if mate is not found, mapping quality is empty
 
 
-import os
 import sys
 import getopt
 import numpy
+import pysam
 
 # ----------------------------------------------------------------
 # read command line args
@@ -66,6 +66,9 @@ output = "\t".join(
     ["read_name", "mate_chr", "mate_position", "mate_mapq", "mate_strand"]
 )
 
+# Open BAM once, query many times (requires BAM index .bai/.csi)
+bam = pysam.AlignmentFile(alignment_bam_file, "rb")
+
 for read in telomere_insertion_table:
     # Expect at least 3 columns: read_name, chromosome, position
     if len(read) < 3:
@@ -79,43 +82,52 @@ for read in telomere_insertion_table:
     if chromosome not in chromosome_list:
         continue
 
-    # get original read of mate (skip secondary and supplementary alignments)
-    extract_mq_command = (
-        "samtools view -F 2304 "
-        + alignment_bam_file
-        + " "
-        + chromosome
-        + ":"
-        + position
-        + "-"
-        + position
-        + '| grep  "'
-        + read_name
-        + '"'
-    )  # | cut -f 5
-
-    original_read = os.popen(extract_mq_command).read().rstrip()
-
-    original_read_list = original_read.split("\t")
-
+    # pysam uses 0-based, half-open intervals for fetch.
+    # Input position here is expected to be 1-based (samtools region syntax),
+    # so convert to 0-based coordinates.
     try:
-        mapq = original_read_list[4]
-    except (IndexError, ValueError):
+        pos1 = int(position)
+    except ValueError:
         mapq = ""
+        strand = ""
+        read_list = [read_name, chromosome, position, mapq, strand]
+        output += "\n" + "\t".join(read_list)
+        continue
 
+    start0 = pos1 - 1
+    end0 = pos1  # fetch one base
+
+    mapq = ""
+    strand = ""
+
+    # Equivalent to: samtools view -F 2304 <bam> chr:pos-pos | grep "<read_name>"
+    # -F 2304 filters out: 0x100 (secondary) + 0x800 (supplementary)
     try:
-        flag = int(original_read_list[1])
-        if flag & 0x10:
-            strand = "-"
-        else:
-            strand = "+"
-    except (IndexError, ValueError):
+        for aln in bam.fetch(chromosome, start0, end0):
+            # skip secondary and supplementary alignments (0x100 and 0x800)
+            if aln.is_secondary or aln.is_supplementary:
+                continue
+
+            # mimic grep for read_name (exact qname match)
+            if aln.query_name != read_name:
+                continue
+
+            # Found the mate alignment at that locus
+            mapq = str(aln.mapping_quality)
+
+            # Equivalent to checking flag & 0x10 for reverse strand
+            strand = "-" if aln.is_reverse else "+"
+            break
+    except (ValueError, OSError):
+        # ValueError can happen if contig not present in BAM header
+        # OSError can happen for missing index, etc.
+        mapq = ""
         strand = ""
 
     read_list = [read_name, chromosome, position, mapq, strand]
-
     output += "\n" + "\t".join(read_list)
 
+bam.close()
 
 # ----------------------------------------------------------------
 # write output
