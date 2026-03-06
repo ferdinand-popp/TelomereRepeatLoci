@@ -196,7 +196,11 @@ def process_pid(args, scripts_dir, pid):
         ]
     )
 
-    for sample in samples if args.run_visualization and args.with_control else [args.tumor_sample_name]:
+    clipped_read_samples = [args.tumor_sample_name]
+    if args.run_visualization and args.with_control:
+        clipped_read_samples.append(args.control_sample_name)
+
+    for sample in clipped_read_samples:
         clipped = clipped_dir / f"{pid}_{sample}_clipped_reads.tsv"
         run_command(
             [
