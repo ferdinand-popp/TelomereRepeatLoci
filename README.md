@@ -1,7 +1,7 @@
 # TelomereRepeatLoci
-*Snakemake workflow for detection of telomere repeat loci from WGS data*
+*Python command-line workflow for detection of telomere repeat loci from WGS data*
 
-This [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow detects telomere repeat loci within cancer genomes from WGS data. The input are BAM files from a tumor and a control sample (if available). In the first step, telomeric reads are extracted using the tool [TelomereHunter](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-019-2851-0). From the extracted telomeric reads, discordant reads are retrieved, where one mate is intratelomeric and the other mate is mapped to the chromosome. In regions with discordant reads, it then searches for clipped reads to find the precise position of the inserted telomere sequence.
+This Python command-line workflow detects telomere repeat loci within cancer genomes from WGS data. The input are BAM files from a tumor and a control sample (if available). In the first step, telomeric reads are extracted using the tool [TelomereHunter](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-019-2851-0). From the extracted telomeric reads, discordant reads are retrieved, where one mate is intratelomeric and the other mate is mapped to the chromosome. In regions with discordant reads, it then searches for clipped reads to find the precise position of the inserted telomere sequence.
 
 <p align="center">
   <img src="resources/images/telomere_repeat_locus_schematic.png" alt="Detection of telomere repeat loci" width="700" />
@@ -37,7 +37,7 @@ Lina Sieverling, Chen Hong, Sandra D. Koser, Philip Ginsbach, Kortine Kleinheinz
 ### Detailed description of individual steps in the workflow
 
 <p align="center">
-  <img src="resources/images/TelomereRepeatLoci_workflow.png" alt="TelomereRepeatLoci snakemake workflow" width="700" />
+  <img src="resources/images/TelomereRepeatLoci_workflow.png" alt="TelomereRepeatLoci workflow" width="700" />
 </p>
 
 #### 1. Run TelomereHunter
@@ -72,10 +72,44 @@ To rule out remaining false positives, each telomere repeat locus should be chec
 
 ### Running the workflow
 
-The workflow can be run like this:
-`snakemake -s PATH_TO_SNAKEFILE/Snakefile --configfile PATH_TO_CONFIGFILE/config_snakemake_telomere_repeat_loci.yaml`
+The workflow is now started directly via Python (no Snakemake/YAML config required):
 
-Please see the [Snakemake documentation](https://snakemake.readthedocs.io/en/stable/) for more information on different Snakemake options and how to send the individual steps of the workflow as jobs to your cluster.
+```bash
+python run_telomere_repeat_loci.py \
+  --results-per-pid-dir /path/to/results_per_pid \
+  --telomerehunter-dir /path/to/TelomereHunterResults \
+  --output-dir /path/to/TelomereRepeatLoci \
+  --pids "PID1 PID2" \
+  --with-control \
+  --blacklist /path/to/blacklist.tsv \
+  --tumor-discordant-read-lower-limit 3 \
+  --control-discordant-read-upper-limit 0 \
+  --consider-blacklist \
+  --reference-fasta /path/to/reference.fa \
+  --run-telomerehunter
+```
 
+Minimal single-sample run (without control):
+
+```bash
+python run_telomere_repeat_loci.py \
+  --results-per-pid-dir /path/to/results_per_pid \
+  --telomerehunter-dir /path/to/TelomereHunterResults \
+  --output-dir /path/to/TelomereRepeatLoci \
+  --pids "PID1" \
+  --tumor-sample-name tumor
+```
+
+Optional plotting can be enabled with:
+
+```bash
+--run-visualization --samtoolsbin samtools
+```
+
+### Notes
+
+- The scripts in `src/` are orchestrated by `run_telomere_repeat_loci.py`.
+- Legacy R helper scripts were removed; the workflow now uses Python scripts only.
+- Existing intratelomeric BAM files from TelomereHunter are reused automatically. Use `--run-telomerehunter` to generate them when needed.
 
 
