@@ -111,3 +111,5 @@ Optional plotting can be enabled with:
 - The scripts in `src/` are orchestrated by `main.py`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
 - Existing intratelomeric BAM files from TelomereHunter are reused automatically. Use `--run-telomerehunter` to generate them when needed.
+- pre-commit hooks use with ruff for dev
+- run tests with `uv run pytest -v`
