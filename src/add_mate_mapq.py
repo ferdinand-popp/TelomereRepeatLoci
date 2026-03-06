@@ -67,10 +67,12 @@ for read in telomere_insertion_table:
     chromosome = read[1]
     if isinstance(read_name, bytes):
         read_name = read_name.decode()
+    else:
+        read_name = str(read_name)
     if isinstance(chromosome, bytes):
         chromosome = chromosome.decode()
-    read_name = str(read_name)
-    chromosome = str(chromosome)
+    else:
+        chromosome = str(chromosome)
     position = str(read[2])
 
     # skip mates mapped to decoy sequences
