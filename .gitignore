@@ -1,4 +1,1 @@
-outputs/
 internal.md
-.snakemake/
-blacklists/hg19-blacklist.v2.bed.gz
