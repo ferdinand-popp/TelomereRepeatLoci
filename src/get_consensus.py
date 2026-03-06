@@ -64,8 +64,12 @@ def microhomology(seq, consensus, repeat_forward, strand):
 
     if strand == "+":
         indice_match = pos_match[0] + 1
-        junction_repeat_ref = repeat_forward[: TELOMERE_REPEAT_LENGTH - indice_match + 1]
-        junction_repeat_tel = repeat_forward[TELOMERE_REPEAT_LENGTH - indice_match + 1 : TELOMERE_REPEAT_LENGTH]
+        junction_repeat_ref = repeat_forward[
+            : TELOMERE_REPEAT_LENGTH - indice_match + 1
+        ]
+        junction_repeat_tel = repeat_forward[
+            TELOMERE_REPEAT_LENGTH - indice_match + 1 : TELOMERE_REPEAT_LENGTH
+        ]
         if junction_repeat_tel != consensus[: indice_match - 1]:
             repeat_junction_wrong = True
         repeats_ref = (repeat_forward * 3 + junction_repeat_ref)[::-1]
@@ -75,7 +79,10 @@ def microhomology(seq, consensus, repeat_forward, strand):
         indice_match = len(consensus) + 1 - (last + TELOMERE_REPEAT_LENGTH)
         junction_repeat_tel = repeat_forward[:indice_match]
         junction_repeat_ref = repeat_forward[indice_match:TELOMERE_REPEAT_LENGTH]
-        if junction_repeat_tel != consensus[last + TELOMERE_REPEAT_LENGTH : len(consensus) + 1]:
+        if (
+            junction_repeat_tel
+            != consensus[last + TELOMERE_REPEAT_LENGTH : len(consensus) + 1]
+        ):
             repeat_junction_wrong = True
         repeats_ref = junction_repeat_ref + repeat_forward * 3
         seq_homology = seq
@@ -117,7 +124,9 @@ def main():
     fasta = pysam.FastaFile(args.reference) if args.reference else None
 
     extra_fields = ["consensus", "flanking_seq", "bp_microhomology"]
-    out_fields = candidate_fields + [f for f in extra_fields if f not in candidate_fields]
+    out_fields = candidate_fields + [
+        f for f in extra_fields if f not in candidate_fields
+    ]
 
     for region in candidate_rows:
         window = region.get("window", "")
@@ -133,7 +142,9 @@ def main():
 
         start_end = "end" if strand == "+" else "start"
         candidates = [
-            r for r in clipped_by_window.get(window, []) if parse_int(r.get(start_end)) == insertion_site
+            r
+            for r in clipped_by_window.get(window, [])
+            if parse_int(r.get(start_end)) == insertion_site
         ]
 
         sequences = []
@@ -157,9 +168,13 @@ def main():
             chrom_chr = chrom if str(chrom).startswith("chr") else f"chr{chrom}"
             try:
                 if strand == "+":
-                    flanking = fasta.fetch(chrom_chr, max(0, insertion_site - 21), insertion_site - 1)
+                    flanking = fasta.fetch(
+                        chrom_chr, max(0, insertion_site - 21), insertion_site - 1
+                    )
                 elif strand == "-":
-                    flanking = fasta.fetch(chrom_chr, insertion_site - 1, insertion_site + 19)
+                    flanking = fasta.fetch(
+                        chrom_chr, insertion_site - 1, insertion_site + 19
+                    )
             except Exception:
                 flanking = ""
         region["flanking_seq"] = flanking

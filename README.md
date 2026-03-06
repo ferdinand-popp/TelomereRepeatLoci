@@ -113,3 +113,5 @@ Optional plotting can be enabled with:
 - Existing intratelomeric BAM files from TelomereHunter are reused automatically. Use `--run-telomerehunter` to generate them when needed.
 - pre-commit hooks use with ruff for dev
 - run tests with `uv run pytest -v`
+- `uv run ruff check --fix .`
+- `uv run ruff format .`
