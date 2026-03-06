@@ -140,17 +140,11 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     pid = "PID001"
 
-    results_dir = tmp_path / "results"
-    telomerehunter_dir = tmp_path / "telomerehunter"
-    output_dir = tmp_path / "output"
+    telomerehunter_dir = tmp_path / "telomerehunter_output"
+    telomerehunter_dir.mkdir(parents=True)
 
-    alignment_dir = results_dir / pid / "alignment"
-    intratel_dir = telomerehunter_dir / pid / f"tumor_TelomerCnt_{pid}"
-    alignment_dir.mkdir(parents=True)
-    intratel_dir.mkdir(parents=True)
-
-    alignment_bam = alignment_dir / f"tumor_{pid}_merged.mdup.bam"
-    intratel_bam = intratel_dir / f"{pid}_filtered_intratelomeric.bam"
+    alignment_bam = tmp_path / "tumor_input.bam"
+    intratel_bam = telomerehunter_dir / f"{pid}_filtered_intratelomeric.bam"
 
     _write_alignment_bam(alignment_bam)
     _write_intratelomeric_bam(intratel_bam)
@@ -167,18 +161,18 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
         [
             sys.executable,
             str(repo_root / "main.py"),
-            "--results-per-pid-dir",
-            str(results_dir),
+            "--input-bam",
+            str(alignment_bam),
             "--telomerehunter-dir",
             str(telomerehunter_dir),
-            "--output-dir",
-            str(output_dir),
-            "--pids",
-            pid,
         ],
         check=True,
         cwd=repo_root,
         env=env,
+    )
+
+    output_dir = (
+        telomerehunter_dir.parent / f"{telomerehunter_dir.name}_TelomereRepeatLoci"
     )
 
     windows_file = output_dir / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
