@@ -48,11 +48,15 @@ telomere_insertion_table = numpy.genfromtxt(
     telomere_insertion_table_file,
     skip_header=1,
     delimiter="\t",
-    dtype=None,
-    encoding=None,
+    dtype=str,  # robust across numpy versions
+    encoding="utf-8",
     comments=None,
 )
 
+# If the input has only a single data line, genfromtxt returns 1D.
+# Normalize to 2D so the loop below works consistently.
+if telomere_insertion_table.ndim == 1:
+    telomere_insertion_table = numpy.atleast_2d(telomere_insertion_table)
 
 # ----------------------------------------------------------------
 # get mapping quality and strand of mate from original BAM file
@@ -63,17 +67,13 @@ output = "\t".join(
 )
 
 for read in telomere_insertion_table:
-    read_name = read[0]
-    chromosome = read[1]
-    if isinstance(read_name, bytes):
-        read_name = read_name.decode()
-    else:
-        read_name = str(read_name)
-    if isinstance(chromosome, bytes):
-        chromosome = chromosome.decode()
-    else:
-        chromosome = str(chromosome)
-    position = str(read[2])
+    # Expect at least 3 columns: read_name, chromosome, position
+    if len(read) < 3:
+        continue
+
+    read_name = str(read[0]).strip()
+    chromosome = str(read[1]).strip()
+    position = str(read[2]).strip()
 
     # skip mates mapped to decoy sequences
     if chromosome not in chromosome_list:
@@ -123,4 +123,4 @@ for read in telomere_insertion_table:
 
 outfile = open(outfile_path, "w")
 outfile.write(output)
-outfile.close
+outfile.close()
