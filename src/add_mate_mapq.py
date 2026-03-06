@@ -49,6 +49,7 @@ telomere_insertion_table = numpy.genfromtxt(
     skip_header=1,
     delimiter="\t",
     dtype=None,
+    encoding=None,
     comments=None,
 )
 
@@ -64,6 +65,14 @@ output = "\t".join(
 for read in telomere_insertion_table:
     read_name = read[0]
     chromosome = read[1]
+    if isinstance(read_name, bytes):
+        read_name = read_name.decode()
+    else:
+        read_name = str(read_name)
+    if isinstance(chromosome, bytes):
+        chromosome = chromosome.decode()
+    else:
+        chromosome = str(chromosome)
     position = str(read[2])
 
     # skip mates mapped to decoy sequences
