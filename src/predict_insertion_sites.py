@@ -2,9 +2,8 @@
 
 import argparse
 import csv
-import math
 import statistics
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
@@ -70,7 +69,9 @@ def main():
         "sum_CCCTAA_count",
         "repeat_forward",
     ]
-    output_fields = candidate_fields + [f for f in new_fields if f not in candidate_fields]
+    output_fields = candidate_fields + [
+        f for f in new_fields if f not in candidate_fields
+    ]
 
     for region in candidate_rows:
         window = region.get("window", "")
@@ -96,7 +97,9 @@ def main():
         else:
             continue
 
-        filtered = [r for r in clipped_tel if r.get("expected_pos_fusion") == expected_pos]
+        filtered = [
+            r for r in clipped_tel if r.get("expected_pos_fusion") == expected_pos
+        ]
 
         discordant_filtered = []
         for d in discordant_rows:
@@ -135,7 +138,9 @@ def main():
             continue
 
         best_unique = max(len(cigars) for cigars in pos_to_cigars.values())
-        insertion_candidates = [pos for pos, cigars in pos_to_cigars.items() if len(cigars) == best_unique]
+        insertion_candidates = [
+            pos for pos, cigars in pos_to_cigars.items() if len(cigars) == best_unique
+        ]
 
         if len(insertion_candidates) != 1:
             continue
@@ -145,7 +150,9 @@ def main():
         region["pos_telomeres_from_insertion"] = expected_pos
         region["reads_supporting_insertion_pos"] = str(best_unique)
 
-        at_insertion = [r for r in filtered_pos if parse_int(r.get(clipped_col)) == insertion_site]
+        at_insertion = [
+            r for r in filtered_pos if parse_int(r.get(clipped_col)) == insertion_site
+        ]
         sum_t = sum(parse_int(r.get("TTAGGG_count")) or 0 for r in at_insertion)
         sum_c = sum(parse_int(r.get("CCCTAA_count")) or 0 for r in at_insertion)
 

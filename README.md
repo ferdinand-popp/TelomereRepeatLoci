@@ -75,7 +75,7 @@ To rule out remaining false positives, each telomere repeat locus should be chec
 The workflow is now started directly via Python (no Snakemake/YAML config required):
 
 ```bash
-python run_telomere_repeat_loci.py \
+python main.py \
   --results-per-pid-dir /path/to/results_per_pid \
   --telomerehunter-dir /path/to/TelomereHunterResults \
   --output-dir /path/to/TelomereRepeatLoci \
@@ -92,7 +92,7 @@ python run_telomere_repeat_loci.py \
 Minimal single-sample run (without control):
 
 ```bash
-python run_telomere_repeat_loci.py \
+python main.py \
   --results-per-pid-dir /path/to/results_per_pid \
   --telomerehunter-dir /path/to/TelomereHunterResults \
   --output-dir /path/to/TelomereRepeatLoci \
@@ -108,8 +108,6 @@ Optional plotting can be enabled with:
 
 ### Notes
 
-- The scripts in `src/` are orchestrated by `run_telomere_repeat_loci.py`.
+- The scripts in `src/` are orchestrated by `main.py`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
 - Existing intratelomeric BAM files from TelomereHunter are reused automatically. Use `--run-telomerehunter` to generate them when needed.
-
-
