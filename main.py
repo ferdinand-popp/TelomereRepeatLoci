@@ -40,6 +40,7 @@ def parse_args():
 def run_command(command):
     print("Running:", " ".join(command))
     subprocess.run(command, check=True)
+    print("---Done subprocess---")
 
 
 def get_intratelomeric_bam(telomerehunter_dir):
