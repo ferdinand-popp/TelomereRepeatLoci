@@ -62,7 +62,9 @@ def merge_adjacent(rows):
         ):
             prev["chromEnd"] = row["chromEnd"]
             prev["tumor_discordant_read_count"] += row["tumor_discordant_read_count"]
-            prev["control_discordant_read_count"] += row["control_discordant_read_count"]
+            prev["control_discordant_read_count"] += row[
+                "control_discordant_read_count"
+            ]
             if prev["blacklisted"] == "yes" or row["blacklisted"] == "yes":
                 prev["blacklisted"] = "yes"
             elif prev["blacklisted"] == "no" or row["blacklisted"] == "no":
@@ -89,7 +91,9 @@ def main():
     control_counts = read_discordant_counts(args.discordantReadFileControl, "control")
 
     windows = sorted(set(tumor_counts) | set(control_counts))
-    pid = os.path.basename(args.outFile).replace("_discordant_reads_1_kb_windows.tsv", "")
+    pid = os.path.basename(args.outFile).replace(
+        "_discordant_reads_1_kb_windows.tsv", ""
+    )
 
     blacklist = set()
     if args.blacklist_file and os.path.exists(args.blacklist_file):
@@ -112,7 +116,9 @@ def main():
                 "strand": strand,
                 "tumor_discordant_read_count": int(tumor_counts.get(window, 0)),
                 "control_discordant_read_count": int(control_counts.get(window, 0)),
-                "blacklisted": "yes" if window in blacklist else ("no" if blacklist else ""),
+                "blacklisted": "yes"
+                if window in blacklist
+                else ("no" if blacklist else ""),
             }
         )
 

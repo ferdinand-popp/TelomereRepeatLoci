@@ -11,7 +11,10 @@ import pysam
 
 
 def _write_alignment_bam(path: Path) -> None:
-    header = {"HD": {"VN": "1.0", "SO": "coordinate"}, "SQ": [{"SN": "1", "LN": 100000}]}
+    header = {
+        "HD": {"VN": "1.0", "SO": "coordinate"},
+        "SQ": [{"SN": "1", "LN": 100000}],
+    }
 
     with pysam.AlignmentFile(path, "wb", header=header) as bam:
         for read_name, pos in [("disc1", 1201), ("disc2", 1221), ("disc3", 1241)]:
@@ -41,14 +44,19 @@ def _write_alignment_bam(path: Path) -> None:
             read.mapping_quality = 60
             read.cigarstring = cigar
             read.query_sequence = "A" * match_len + tel_clip
-            read.query_qualities = pysam.qualitystring_to_array("I" * (match_len + len(tel_clip)))
+            read.query_qualities = pysam.qualitystring_to_array(
+                "I" * (match_len + len(tel_clip))
+            )
             bam.write(read)
 
     pysam.index(str(path))
 
 
 def _write_intratelomeric_bam(path: Path) -> None:
-    header = {"HD": {"VN": "1.0", "SO": "coordinate"}, "SQ": [{"SN": "1", "LN": 100000}]}
+    header = {
+        "HD": {"VN": "1.0", "SO": "coordinate"},
+        "SQ": [{"SN": "1", "LN": 100000}],
+    }
 
     with pysam.AlignmentFile(path, "wb", header=header) as bam:
         for idx, (read_name, mate_pos) in enumerate(
@@ -174,12 +182,36 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
     )
 
     windows_file = output_dir / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
-    candidates_file = output_dir / "candidate_region_tables" / f"{pid}_telomere_insertions_candidate_regions.tsv"
-    extended_file = output_dir / "candidate_region_tables" / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
-    consensus_file = output_dir / "candidate_region_tables" / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
-    bed_zoomed_out = output_dir / "plots" / "bedfiles" / "zoomed_out" / f"{pid}_telomere_insertions.bed"
+    candidates_file = (
+        output_dir
+        / "candidate_region_tables"
+        / f"{pid}_telomere_insertions_candidate_regions.tsv"
+    )
+    extended_file = (
+        output_dir
+        / "candidate_region_tables"
+        / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
+    )
+    consensus_file = (
+        output_dir
+        / "candidate_region_tables"
+        / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
+    )
+    bed_zoomed_out = (
+        output_dir
+        / "plots"
+        / "bedfiles"
+        / "zoomed_out"
+        / f"{pid}_telomere_insertions.bed"
+    )
 
-    for path in [windows_file, candidates_file, extended_file, consensus_file, bed_zoomed_out]:
+    for path in [
+        windows_file,
+        candidates_file,
+        extended_file,
+        consensus_file,
+        bed_zoomed_out,
+    ]:
         assert path.exists()
 
     with windows_file.open(newline="") as handle:
