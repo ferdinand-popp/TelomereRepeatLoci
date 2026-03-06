@@ -76,29 +76,27 @@ The workflow is now started directly via Python (no Snakemake/YAML config requir
 
 ```bash
 python main.py \
-  --results-per-pid-dir /path/to/results_per_pid \
-  --telomerehunter-dir /path/to/TelomereHunterResults \
-  --output-dir /path/to/TelomereRepeatLoci \
-  --pids "PID1 PID2" \
-  --with-control \
+  --input-bam /path/to/tumor_input.bam \
+  --telomerehunter-dir /path/to/TelomereHunterOutputDir \
   --blacklist /path/to/blacklist.tsv \
   --tumor-discordant-read-lower-limit 3 \
   --control-discordant-read-upper-limit 0 \
   --consider-blacklist \
-  --reference-fasta /path/to/reference.fa \
-  --run-telomerehunter
+  --reference-fasta /path/to/reference.fa
 ```
 
-Minimal single-sample run (without control):
+Minimal single-sample run:
 
 ```bash
 python main.py \
-  --results-per-pid-dir /path/to/results_per_pid \
-  --telomerehunter-dir /path/to/TelomereHunterResults \
-  --output-dir /path/to/TelomereRepeatLoci \
-  --pids "PID1" \
-  --tumor-sample-name tumor
+  --input-bam /path/to/tumor_input.bam \
+  --telomerehunter-dir /path/to/TelomereHunterOutputDir
 ```
+
+By default, output files are written to a new sibling directory outside the provided
+TelomereHunter output directory:
+`<telomerehunter-dir>_TelomereRepeatLoci`.
+You can still override this with `--output-dir`.
 
 Optional plotting can be enabled with:
 
@@ -110,7 +108,7 @@ Optional plotting can be enabled with:
 
 - The scripts in `src/` are orchestrated by `main.py`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
-- Existing intratelomeric BAM files from TelomereHunter are reused automatically. Use `--run-telomerehunter` to generate them when needed.
+- The input TelomereHunter output directory must contain exactly one `*_filtered_intratelomeric.bam` file.
 - pre-commit hooks use with ruff for dev
 - run tests with `uv run pytest -v`
 - `uv run ruff check --fix .`
