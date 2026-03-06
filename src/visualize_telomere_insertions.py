@@ -23,17 +23,15 @@
 
 
 
+import sys
 import os
-import shutil
 import subprocess
 import argparse
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plot
 from matplotlib import gridspec
-import pysam
-import pandas as pd
-
+import numpy as np
 
 
 argument_parser = argparse.ArgumentParser(
@@ -64,52 +62,38 @@ argument_parser.add_argument('--clipped_reads_control', type=str,
     default=None, help='a table with all clipped read sequences in control sample')
 argument_parser.add_argument('--outfile', type=str,
     default=None, help='path to dummy output file (needed for snakemake)')
-argument_parser.add_argument('--review_bed', metavar='FILE', type=str,
-    default=None, help='bed file (same format as --bed) of sites that are also flagged_for_review; '
-    'their PDFs get additionally copied into --review_prefix')
-argument_parser.add_argument('--review_prefix', metavar='PREFIX', type=str,
-    default=None, help='target directory to copy PDFs of --review_bed sites into')
 parsed_arguments = argument_parser.parse_args()
-print(parsed_arguments.clipped_reads_tumor)
 
 
 basepair_colors_axis = { 'A':"#009600", 'C':"#3030fe", 'G':"#d17105", 'T':"#ff0000", 'N':"#00ffff" }
 basepair_colors = { 'A':"#4DE34D", 'C':"#7D7DFF", 'G':"#FFBE52", 'T':"#FF4D4D", 'N':"#00ffff" }
 
 
-import pysam
-
-def resolve_chrom( contigs, chrom ):
-  # the pipeline's own chrom values are bare ("1", "X"), but the reference fasta may use
-  # "chr"-prefixed contigs ("chr1") -- resolve against the fasta's actual contig names
-  # instead of requiring the "chr"/no-"chr" convention to be known/configured up front.
-  if chrom in contigs:
-    return chrom
-  elif "chr" + chrom in contigs:
-    return "chr" + chrom
-  elif chrom.startswith( "chr" ) and chrom[3:] in contigs:
-    return chrom[3:]
-  else:
-    raise ValueError( "chromosome '%s' not found in reference fasta contigs (checked '%s' and 'chr' variants)" % ( chrom, chrom ) )
-
-
 class ReferenceBuffer(object):
+
   def __init__( self, filename, chromosome ):
-    self.fasta      = pysam.FastaFile( filename )
-    self.chromosome = resolve_chrom( self.fasta.references, chromosome )
-    self.offset     = 0
-    self.sequence   = ""
+
+    self.samtools_call = [ parsed_arguments.samtoolsbin, "faidx", filename ]
+    self.chromosome    = chromosome;
+    self.offset        = 0
+    self.sequence      = ""
 
   def __getitem__( self, pos ):
+
     if len(self.sequence) > pos - self.offset >= 0:
+
       return self.sequence[ pos - self.offset ]
+
     else:
-      start = max( 0, pos - 1000 )
-      end   = pos + 1000
-      self.offset   = start
-      # pysam fetch is 0-based half-open; pos here is treated as 1-based per samtools region convention
-      self.sequence = self.fasta.fetch( self.chromosome, start - 1, end ).upper()
+
+      region = "%s:%i-%i" % ( self.chromosome, pos - 1000, pos + 1000 )
+      call   = self.samtools_call + [ region ]
+      output = subprocess.check_output( call )
+      self.offset   = max( 0, pos - 1000 )
+      self.sequence = "".join( output.split('\n')[1:] ).upper()
+
       return self.sequence[ pos - self.offset ]
+
 
 
 def get_annotations( region ):
@@ -348,27 +332,29 @@ def plot_cigars( cigars, sequences, reverses, read_names, read_flags, colored_re
   ax.set_ylim( ymin=( 1 - len([ l for l in right_limits if l > 0 ]) ), ymax=1 )
   ax.set_yticks([])
 
-def get_samtools_reads( bam_file, region_chrom, region_left, region_right ):
-  with pysam.AlignmentFile( bam_file, "rb" ) as bam:
-      reads = [
-          read for read in bam.fetch( region_chrom, region_left, region_right )
-          if not read.is_duplicate  # equivalent to samtools -F 1024
-      ]
-  return reads
 
 
 def plot_region( region_chrom, region_center, region_left, region_right, plot_title ):
+
   region_string = "%s:%i-%i" % ( region_chrom, region_left, region_right )
 
-  if parsed_arguments.control is None:
-      samtools_reads1 = []
-  else:
-      samtools_reads1 = get_samtools_reads( parsed_arguments.control, region_chrom, region_left, region_right )
 
-  samtools_reads2 = get_samtools_reads( parsed_arguments.tumor, region_chrom, region_left, region_right )
+  if parsed_arguments.control is None:
+    samtools_reads1 = []
+  else:
+    samtools_call1   = ( parsed_arguments.samtoolsbin, "view", "-F", "1024", parsed_arguments.control, region_string )
+    samtools_output1 = subprocess.check_output( samtools_call1 )
+    samtools_output1 = [ line.split('\t') for line in samtools_output1.split('\n') ]
+    samtools_reads1  = [ line for line in samtools_output1 if len(line) > 5 ]
+
+  samtools_call2   = ( parsed_arguments.samtoolsbin, "view", "-F", "1024", parsed_arguments.tumor, region_string )
+  samtools_output2 = subprocess.check_output( samtools_call2 )
+  samtools_output2 = [ line.split('\t') for line in samtools_output2.split('\n') ]
+  samtools_reads2  = [ line for line in samtools_output2 if len(line) > 5 ]
 
   annotations = get_annotations( region_string )
-  if len(samtools_reads1) < 3000 and len(samtools_reads2) < 3000:
+
+  if len(samtools_reads1) < 3000 and len(samtools_reads2) < 3000: 
 
   # print( "region %s annotations: " % region_string, annotations )
 
@@ -400,15 +386,13 @@ def plot_region( region_chrom, region_center, region_left, region_right, plot_ti
       else:
         colored_reads_control = []
 
-      control_reads_with_cigar = [ read for read in samtools_reads1 if read.cigarstring is not None ]
+      plot_histogram( [ parse_cigar( read[5], int(read[3]) ) for read in samtools_reads1 if read[5] != "*" ], ax[0] )
 
-      plot_histogram( [ parse_cigar( read.cigarstring, read.reference_start + 1 ) for read in control_reads_with_cigar ], ax[0] )
-
-      plot_cigars( [ parse_cigar( read.cigarstring, read.reference_start + 1 ) for read in control_reads_with_cigar ],
-                   [ get_sequence(read, parsed_arguments.control, clipped_reads_control_dict) for read in control_reads_with_cigar ],
-                   [ read.is_reverse for read in control_reads_with_cigar ],
-                   [ read.query_name for read in control_reads_with_cigar ],
-                   [ read.flag for read in control_reads_with_cigar ],
+      plot_cigars( [ parse_cigar( read[5], int(read[3]) ) for read in samtools_reads1 if read[5] != "*"  ],
+                   [ get_sequence(read, parsed_arguments.control, clipped_reads_control_dict) for read in samtools_reads1 if read[5] != "*"  ], 
+                   [ bool(int(read[1])&0x10) for read in samtools_reads1 if read[5] != "*"  ],
+                   [ read[0] for read in samtools_reads1 if read[5] != "*" ],
+                   [ int(read[1]) for read in samtools_reads1 if read[5] != "*" ],
                    colored_reads_control,
                    ax[1], reference_buffer )
 
@@ -418,16 +402,14 @@ def plot_region( region_chrom, region_center, region_left, region_right, plot_ti
       colored_reads_tumor = getColoredReads(parsed_arguments.colored_reads_tumor, region_chrom)
     else:
       colored_reads_tumor = []
+    
+    plot_histogram( [ parse_cigar( read[5], int(read[3]) ) for read in samtools_reads2 if read[5] != "*"  ], ax[2] )
 
-    tumor_reads_with_cigar = [ read for read in samtools_reads2 if read.cigarstring is not None ]
-
-    plot_histogram( [ parse_cigar( read.cigarstring, read.reference_start + 1 ) for read in tumor_reads_with_cigar ], ax[2] )
-
-    plot_cigars( [ parse_cigar( read.cigarstring, read.reference_start + 1 ) for read in tumor_reads_with_cigar ],
-                 [ get_sequence(read, parsed_arguments.tumor, clipped_reads_tumor_dict) for read in tumor_reads_with_cigar ],
-                 [ read.is_reverse for read in tumor_reads_with_cigar ],
-                 [ read.query_name for read in tumor_reads_with_cigar ],
-                 [ read.flag for read in tumor_reads_with_cigar ],
+    plot_cigars( [ parse_cigar( read[5], int(read[3]) ) for read in samtools_reads2 if read[5] != "*"  ],
+                 [ get_sequence(read, parsed_arguments.tumor, clipped_reads_tumor_dict) for read in samtools_reads2 if read[5] != "*"  ],               
+                 [ bool(int(read[1])&0x10) for read in samtools_reads2 if read[5] != "*"  ],
+                 [ read[0] for read in samtools_reads2 if read[5] != "*" ],
+                 [ int(read[1]) for read in samtools_reads2 if read[5] != "*" ],
                  colored_reads_tumor,
                  ax[3], reference_buffer )
 
@@ -442,7 +424,7 @@ def plot_region( region_chrom, region_center, region_left, region_right, plot_ti
     ax[2].yaxis.set_tick_params( labelleft=True, labelright=True )
 
     visible_basepairs = [ reference_buffer[i] for i in range( region_left, region_right + 1 ) ]
-    
+
     ax[1].xaxis.set_tick_params( width=0 )
     ax[1].set_xticks([ i for i in range( region_left, region_right + 1 ) ])
     ax[1].xaxis.set_ticklabels( visible_basepairs )
@@ -492,62 +474,71 @@ def plot_region( region_chrom, region_center, region_left, region_right, plot_ti
 
 def get_sequence( read, bamfile, clipped_read_dict=None ):
 
-  if 'H' not in (read.cigarstring or ""):
-    # query_sequence in pysam is already exactly what samtools view reports
-    # (hard-clipped bases excluded, already reverse-complemented if on reverse strand)
-    sequence = read.query_sequence
+  if('H' not in read[5]):
+    sequence = read[9]
 
   elif clipped_read_dict:
-    if read.is_read1:
+
+    flag = int(read[1])
+
+    if flag & 0x40:
       read_1_2 = "READ1"
-    elif read.is_read2:
+    elif flag & 0x80:
       read_1_2 = "READ2"
-    sequence = clipped_read_dict[read.query_name + "_" + read_1_2]
+
+    sequence = clipped_read_dict[read[0] + "_" + read_1_2]
 
   else:
-    read_name = read.query_name
-    pos = str( read.reference_start + 1 )   # 1-based, to match SAM POS convention used below
 
-    if read.is_read1:
+    read_name = read[0]
+    flag = int(read[1])
+    pos = read[3]
+
+    if flag & 0x40:
       flag_string = "64"
-    elif read.is_read2:
+    elif flag & 0x80:
       flag_string = "128"
 
-    if read.is_reverse:
+    if flag & 0x10:
       strand_supp = "-"
       flag_string += " -f 16"
     else:
       strand_supp = "+"
+ 
+    #extract SA Tag with position and strand of primary alignment
+    tags = read[11:len(read)]
+    sa_tag = filter(lambda x:'SA:' in x, tags)
 
-    # extract SA tag with position and strand of primary alignment
-    sa_tag = read.get_tag('SA')                 # e.g. "chr1,12345,+,50M,60,0;"
-    sa_fields = sa_tag.split(';')[0].split(',')
-    pos_primary = sa_fields[0] + ':' + sa_fields[1] + '-' + sa_fields[1]
-    strand_primary = sa_fields[2]
+    sa_tag = sa_tag[0].split(',')
 
-    # get sequence of original alignment
-    samtools_call = ( parsed_arguments.samtoolsbin, "view", "-f", flag_string, bamfile, pos_primary )
+    pos_primary = sa_tag[0].replace('SA:Z:', '') + ':' + sa_tag[1] + '-' + sa_tag[1]
+    strand_primary = sa_tag[2]
+
+    #get sequence of original alignment
+    samtools_call = ( parsed_arguments.samtoolsbin, "view", "-f", flag_string, bamfile, pos_primary)
     samtools_output = subprocess.check_output( samtools_call )
     samtools_output = samtools_output.split('\n')
+    read_original = filter(lambda x:read_name in x, samtools_output) 
 
-    read_original = [ line for line in samtools_output if read_name in line ]
-    read_original = [ line for line in read_original if line.split("\t")[3] == sa_fields[1] ]
-    read_original = [ line for line in read_original if "SA:Z:" in line ]
-    read_original = [ line for line in read_original if pos in line ]
-    read_original = [ line for line in read_original if int(line.split("\t")[1]) < 2000 ]
+    read_original = [ read for read in read_original if read.split("\t")[3]==sa_tag[1]]
+    read_original = filter(lambda x:"SA:Z:" in x, read_original) 
+    read_original = filter(lambda x:pos in x, read_original) 
+    read_original = [ read for read in read_original if int(read.split("\t")[1])<2000 ]
 
-    if len(read_original) != 1:
+    if len(read_original)!=1:
       print("multiple primary alignments were found for read " + read_name)
       print(read_original)
 
-    read_original = read_original[0].split('\t')
+    read_original = read_original[0].split('\t') 
+
     sequence = read_original[9]
 
-    # if read is mapped to different strand than supplementary alignment: get reverse complement
+    # if read is mapped to different strand than supplementary alignment: get reverse complement 
     if strand_supp != strand_primary:
       sequence = getReverseComplement(sequence)
 
   return sequence
+
 
 # get the reverse complement of a DNA Sequence
 def getReverseComplement(sequence):
@@ -568,33 +559,35 @@ def getReverseComplement(sequence):
 
 
 def getColoredReads(colored_read_file, chrom):
-    df = pd.read_csv(
-        colored_read_file, sep='\t', header=0,
-        names=['read_name', 'mate_chr', 'mate_position', 'mate_mapq', 'mate_strand'],
-        dtype=str
-    )
-    df['mate_mapq'] = df['mate_mapq'].replace('', '0').astype(int)
 
-    # only keep reads with mapping quality larger than 30 and on chromosome
-    filtered = df[(df['mate_mapq'] > 30) & (df['mate_chr'] == chrom)]
+  read_name, mate_chr, mate_position, mate_mapq, mate_strand = np.loadtxt(colored_read_file, dtype = str, delimiter='\t', comments='', skiprows=1, unpack=True)
 
-    colored_reads = (filtered['read_name'] + '_' + filtered['mate_strand']).tolist()
-    return colored_reads
+  #mate_mapq = [int(i) for i in mate_mapq]
+  mate_mapq = [int(i) if i!='' else 0 for i in mate_mapq]
+
+  #only keep reads with mapping quality larger than 30 and on chromosome
+  indices1 = [i for i,v in enumerate(mate_mapq) if v > 30]
+  indices2 = [i for i,v in enumerate(mate_chr) if v == chrom]
+  indices = list(set(indices1) & set(indices2))
+  colored_reads = [read_name[i] + "_" + mate_strand[i] for i in indices]
+
+  return(colored_reads)
 
 
 def getClippedSequences(clipped_read_file):
-    # makes a dictionary of clipped reads (read id (read name and read1/2) and sequence of entire read)
-    try:
-        df = pd.read_csv(
-            clipped_read_file, sep='\t', header=0,
-            usecols=[1, 2, 9], names=['read_name', 'read_1_2', 'sequence'],
-            dtype=str
-        )
-        read_ids = df['read_name'] + '_' + df['read_1_2']
-        clipped_reads = dict(zip(read_ids, df['sequence']))
-    except Exception:
-        clipped_reads = None
-    return clipped_reads
+  #makes a dictionary of clipped reads (read id (read name and read1/2) and sequence of entire read)
+
+  try:
+    read_names, read_1_2, sequences = np.loadtxt(clipped_read_file, dtype = str, delimiter='\t', comments='', skiprows=1, unpack=True, usecols=(1,2,9))
+    
+    read_ids = [a + '_' + b for a,b in zip(read_names,read_1_2)]
+
+    clipped_reads = dict(zip(read_ids, sequences))
+  except:
+    clipped_reads = None
+
+  return(clipped_reads)
+
 
 
 
@@ -613,18 +606,7 @@ else:
   clipped_reads_control_dict = None
 
 
-#sites that are also flagged_for_review get their pdf additionally copied into --review_prefix
-review_flagged_keys = set()
-if parsed_arguments.review_bed:
-  for line in open(parsed_arguments.review_bed, 'r'):
-    if line[:1] != "#":
-      review_chrom  = line.split('\t')[0]
-      review_center = int(line.split('\t')[3])
-      review_pid    = line.rstrip().split('\t')[4]
-      review_flagged_keys.add((review_pid, review_chrom, review_center))
-
-
-#go through bed file and make plots for each
+#go through bed file and make plots for each 
 if parsed_arguments.bed:
 
   for line in open(parsed_arguments.bed, 'r' ):
@@ -645,15 +627,10 @@ if parsed_arguments.bed:
       plot_region( region_chrom, region_center, region_left, region_right, plot_title )
 
       #plot.savefig( "%s%s_%s_%i.png" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
-      pdf_path = "%s%s_%s_%i.pdf" % ( parsed_arguments.prefix, pid, region_chrom, region_center )
-      plot.savefig( pdf_path )
+      plot.savefig( "%s%s_%s_%i.pdf" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
       plot.clf()
       plot.cla()
       plot.close()
-
-      if parsed_arguments.review_prefix and (pid, region_chrom, region_center) in review_flagged_keys:
-        os.makedirs(parsed_arguments.review_prefix, exist_ok=True)
-        shutil.copy2(pdf_path, os.path.join(parsed_arguments.review_prefix, os.path.basename(pdf_path)))
 
 
 
