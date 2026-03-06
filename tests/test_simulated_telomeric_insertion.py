@@ -171,7 +171,9 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
         env=env,
     )
 
-    output_dir = tmp_path / "telomerehunter_output_TelomereRepeatLoci"
+    output_dir = (
+        telomerehunter_dir.parent / f"{telomerehunter_dir.name}_TelomereRepeatLoci"
+    )
 
     windows_file = output_dir / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
     candidates_file = (

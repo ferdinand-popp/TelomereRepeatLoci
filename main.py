@@ -49,8 +49,10 @@ def get_intratelomeric_bam(telomerehunter_dir):
             f"No *_filtered_intratelomeric.bam found in {telomerehunter_dir}"
         )
     if len(matches) > 1:
+        match_names = ", ".join(str(match) for match in matches)
         raise ValueError(
-            f"Multiple intratelomeric BAM files found in {telomerehunter_dir}: {matches}"
+            "Multiple intratelomeric BAM files found in "
+            f"{telomerehunter_dir}: {match_names}"
         )
     return matches[0]
 
@@ -73,13 +75,14 @@ def process_sample(args, scripts_dir):
 
     intratel_bam = get_intratelomeric_bam(args.telomerehunter_dir)
     pid = intratel_bam.stem.removesuffix("_filtered_intratelomeric")
+    output_dir = get_output_dir(args)
 
-    tables_dir = get_output_dir(args) / "tables"
-    clipped_dir = get_output_dir(args) / "clipped_reads"
-    candidate_dir = get_output_dir(args) / "candidate_region_tables"
-    bed_zoomed_out_dir = get_output_dir(args) / "plots" / "bedfiles" / "zoomed_out"
-    bed_zoomed_in_dir = get_output_dir(args) / "plots" / "bedfiles" / "zoomed_in"
-    plot_zoomed_in_dir = get_output_dir(args) / "plots" / "zoomed_in"
+    tables_dir = output_dir / "tables"
+    clipped_dir = output_dir / "clipped_reads"
+    candidate_dir = output_dir / "candidate_region_tables"
+    bed_zoomed_out_dir = output_dir / "plots" / "bedfiles" / "zoomed_out"
+    bed_zoomed_in_dir = output_dir / "plots" / "bedfiles" / "zoomed_in"
+    plot_zoomed_in_dir = output_dir / "plots" / "zoomed_in"
 
     for path in [
         tables_dir,
