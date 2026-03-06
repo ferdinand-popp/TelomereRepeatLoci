@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +28,9 @@ def parse_args():
     parser.add_argument("--bam-suffix", default="_merged.mdup.bam")
     parser.add_argument("--blacklist", default="no_file")
     parser.add_argument("--tumor-discordant-read-lower-limit", type=float, default=3.0)
-    parser.add_argument("--control-discordant-read-upper-limit", type=float, default=0.0)
+    parser.add_argument(
+        "--control-discordant-read-upper-limit", type=float, default=0.0
+    )
     parser.add_argument("--consider-blacklist", action="store_true")
     parser.add_argument("--reference-fasta", default="")
     parser.add_argument(
@@ -55,7 +56,9 @@ def pid_list(args):
     results_dir = Path(args.results_per_pid_dir)
     if args.pids == "all":
         return sorted(
-            d.name for d in results_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
+            d.name
+            for d in results_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
         )
     return [x for x in args.pids.split() if x]
 
@@ -92,10 +95,13 @@ def process_pid(args, scripts_dir, pid):
         input_bams[sample] = bam
 
     intratel_bams = {
-        sample: intratel_bam_path(args.telomerehunter_dir, pid, sample) for sample in samples
+        sample: intratel_bam_path(args.telomerehunter_dir, pid, sample)
+        for sample in samples
     }
 
-    if args.run_telomerehunter and not all(path.exists() for path in intratel_bams.values()):
+    if args.run_telomerehunter and not all(
+        path.exists() for path in intratel_bams.values()
+    ):
         cmd = [
             "telomerehunter",
             "-p",
@@ -147,7 +153,9 @@ def process_pid(args, scripts_dir, pid):
             ]
         )
 
-        discordant_with_mapq = tables_dir / f"{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv"
+        discordant_with_mapq = (
+            tables_dir / f"{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv"
+        )
         run_command(
             [
                 sys.executable,
@@ -161,9 +169,13 @@ def process_pid(args, scripts_dir, pid):
             ]
         )
 
-    discordant_tumor = tables_dir / f"{pid}_{args.tumor_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+    discordant_tumor = (
+        tables_dir
+        / f"{pid}_{args.tumor_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+    )
     discordant_control = (
-        tables_dir / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+        tables_dir
+        / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
         if args.with_control
         else Path("NULL")
     )
@@ -213,7 +225,9 @@ def process_pid(args, scripts_dir, pid):
         )
 
     tumor_clipped = clipped_dir / f"{pid}_{args.tumor_sample_name}_clipped_reads.tsv"
-    extended = candidate_dir / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
+    extended = (
+        candidate_dir / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
+    )
     run_command(
         [
             sys.executable,
@@ -226,7 +240,8 @@ def process_pid(args, scripts_dir, pid):
     )
 
     extended_with_consensus = (
-        candidate_dir / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
+        candidate_dir
+        / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
     )
     cmd = [
         sys.executable,
@@ -284,7 +299,10 @@ def process_pid(args, scripts_dir, pid):
                         / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
                     ),
                     "--clipped_reads_control",
-                    str(clipped_dir / f"{pid}_{args.control_sample_name}_clipped_reads.tsv"),
+                    str(
+                        clipped_dir
+                        / f"{pid}_{args.control_sample_name}_clipped_reads.tsv"
+                    ),
                 ]
             )
         run_command(visualize_cmd)

@@ -3,7 +3,6 @@
 import argparse
 import csv
 import re
-from collections import defaultdict
 
 import pysam
 
@@ -167,13 +166,14 @@ def main():
             if read.is_unmapped or not read.is_supplementary:
                 continue
 
-            supp_strand = "-" if read.is_reverse else "+"
             try:
                 sa_tag = read.get_tag("SA")
             except KeyError:
                 continue
             primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
-            sequence = get_primary_sequence(bam, read, primary_chr, primary_pos, primary_strand)
+            sequence = get_primary_sequence(
+                bam, read, primary_chr, primary_pos, primary_strand
+            )
 
             cigar = read.cigarstring or ""
             start_1based = read.reference_start + 1
