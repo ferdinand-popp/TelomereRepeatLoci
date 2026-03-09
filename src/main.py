@@ -139,7 +139,10 @@ def get_output_dir(args):
     if args.output_dir:
         return Path(args.output_dir)
     telomerehunter_dir = Path(args.telomerehunter_dir)
-    return telomerehunter_dir.parent / f"{telomerehunter_dir.name}_TelomereRepeatLoci"
+    return (
+        telomerehunter_dir.parent
+        / f"{telomerehunter_dir.name.replace('_TelomerCnt', '')}_TelomereRepeatLoci"
+    )
 
 
 def ensure_dir(path):
