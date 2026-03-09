@@ -237,12 +237,6 @@ def process_sample(args, scripts_dir):
 
 
 def get_version_from_package():
-    """
-    Read the project version from pyproject.toml using regex parsing.
-
-    Returns:
-        str: The project version string, or "unknown" if not found
-    """
     try:
         from importlib.metadata import PackageNotFoundError, version
 
