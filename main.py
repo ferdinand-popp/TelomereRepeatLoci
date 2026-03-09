@@ -236,7 +236,26 @@ def process_sample(args, scripts_dir):
         run_command(visualize_cmd)
 
 
+def get_version_from_package():
+    """
+    Read the project version from pyproject.toml using regex parsing.
+
+    Returns:
+        str: The project version string, or "unknown" if not found
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("telomererepeatloci")
+        except PackageNotFoundError:
+            return "unknown - check pyproject.toml file"
+    except ImportError:
+        return "unknown - check pyproject.toml file"
+
+
 def main():
+    print(f"TelomereRepeatLoci - version {get_version_from_package()}")
     args = parse_args()
     scripts_dir = Path(__file__).resolve().parent / "src"
     print("--- Processing sample ---")
