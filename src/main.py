@@ -11,13 +11,17 @@ def parse_args():
         description="Run the TelomereRepeatLoci workflow without Snakemake/YAML."
     )
     parser.add_argument("--tumor-bam", required=True)
-    parser.add_argument("--control-bam")
+    parser.add_argument(
+        "--control-bam",
+        default="",
+        help="Optional control BAM. If not provided, workflow runs in tumor-only mode.",
+    )
     parser.add_argument(
         "--telomerehunter-dir",
         required=True,
         help=(
             "Parent directory containing TelomereHunter output folders, e.g. "
-            "<telomerehunter-dir>/tumor_TelomerCnt_<PID> and "
+            "<telomerehunter-dir>/tumor_TelomerCnt_<PID> and optionally "
             "<telomerehunter-dir>/control_TelomerCnt_<PID>."
         ),
     )
@@ -81,24 +85,18 @@ def extract_pid_from_folder(folder_path):
     return pid
 
 
-def detect_th_sample_dirs(telomerehunter_dir):
+def detect_tumor_th_dir(telomerehunter_dir):
     base = Path(telomerehunter_dir)
     if not base.exists():
         raise FileNotFoundError(f"Missing telomerehunter-dir: {base}")
     if not base.is_dir():
         raise NotADirectoryError(f"--telomerehunter-dir is not a directory: {base}")
 
-    tumor_dirs = []
-    control_dirs = []
-
-    for child in base.iterdir():
-        if not child.is_dir():
-            continue
-        name_lower = child.name.lower()
-        if "tumor_telomercnt_" in name_lower:
-            tumor_dirs.append(child)
-        elif "control_telomercnt_" in name_lower:
-            control_dirs.append(child)
+    tumor_dirs = [
+        child
+        for child in base.iterdir()
+        if child.is_dir() and "tumor_telomercnt_" in child.name.lower()
+    ]
 
     if len(tumor_dirs) != 1:
         names = ", ".join(str(p) for p in sorted(tumor_dirs)) or "none"
@@ -106,6 +104,20 @@ def detect_th_sample_dirs(telomerehunter_dir):
             f"Expected exactly 1 tumor TelomereHunter folder under {base}, "
             f"found {len(tumor_dirs)}: {names}"
         )
+
+    tumor_dir = tumor_dirs[0]
+    pid = extract_pid_from_folder(tumor_dir)
+    return tumor_dir, pid
+
+
+def detect_control_th_dir_for_pid(telomerehunter_dir, pid):
+    base = Path(telomerehunter_dir)
+    control_dirs = [
+        child
+        for child in base.iterdir()
+        if child.is_dir() and "control_telomercnt_" in child.name.lower()
+    ]
+
     if len(control_dirs) != 1:
         names = ", ".join(str(p) for p in sorted(control_dirs)) or "none"
         raise ValueError(
@@ -113,19 +125,14 @@ def detect_th_sample_dirs(telomerehunter_dir):
             f"found {len(control_dirs)}: {names}"
         )
 
-    tumor_dir = tumor_dirs[0]
     control_dir = control_dirs[0]
-
-    tumor_pid = extract_pid_from_folder(tumor_dir)
     control_pid = extract_pid_from_folder(control_dir)
-
-    if tumor_pid != control_pid:
+    if control_pid != pid:
         raise ValueError(
             "Tumor/control PID mismatch from TelomereHunter folder names: "
-            f"tumor PID='{tumor_pid}', control PID='{control_pid}'."
+            f"tumor PID='{pid}', control PID='{control_pid}'."
         )
-
-    return tumor_dir, control_dir, tumor_pid
+    return control_dir
 
 
 def get_output_dir(args):
@@ -141,15 +148,23 @@ def ensure_dir(path):
 
 def process_sample(args, scripts_dir):
     tumor_bam = Path(args.tumor_bam)
-    control_bam = Path(args.control_bam)
     if not tumor_bam.exists():
         raise FileNotFoundError(f"Missing tumor BAM: {tumor_bam}")
-    if not control_bam.exists():
-        raise FileNotFoundError(f"Missing control BAM: {control_bam}")
 
-    tumor_th_dir, control_th_dir, pid = detect_th_sample_dirs(args.telomerehunter_dir)
+    use_control = bool(args.control_bam)
+    control_bam = None
+    if use_control:
+        control_bam = Path(args.control_bam)
+        if not control_bam.exists():
+            raise FileNotFoundError(f"Missing control BAM: {control_bam}")
+
+    tumor_th_dir, pid = detect_tumor_th_dir(args.telomerehunter_dir)
     tumor_filtered_bam = get_filtered_bam(tumor_th_dir)
-    control_filtered_bam = get_filtered_bam(control_th_dir)
+
+    control_filtered_bam = None
+    if use_control:
+        control_th_dir = detect_control_th_dir_for_pid(args.telomerehunter_dir, pid)
+        control_filtered_bam = get_filtered_bam(control_th_dir)
 
     output_dir = get_output_dir(args)
 
@@ -202,37 +217,39 @@ def process_sample(args, scripts_dir):
         ]
     )
 
-    # Control discordant reads
-    control_discordant = (
-        tables_dir / f"{pid}_{args.control_sample_name}_discordant_reads.tsv"
-    )
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "find_discordant_reads.py"),
-            "-i",
-            str(control_filtered_bam),
-            "-o",
-            str(control_discordant),
-        ]
-    )
+    # Optional control discordant reads
+    control_discordant_with_mapq = Path("NULL")
+    if use_control:
+        control_discordant = (
+            tables_dir / f"{pid}_{args.control_sample_name}_discordant_reads.tsv"
+        )
+        run_command(
+            [
+                sys.executable,
+                str(scripts_dir / "find_discordant_reads.py"),
+                "-i",
+                str(control_filtered_bam),
+                "-o",
+                str(control_discordant),
+            ]
+        )
 
-    control_discordant_with_mapq = (
-        tables_dir
-        / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
-    )
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "add_mate_mapq.py"),
-            "-i",
-            str(control_discordant),
-            "-b",
-            str(control_bam),
-            "-o",
-            str(control_discordant_with_mapq),
-        ]
-    )
+        control_discordant_with_mapq = (
+            tables_dir
+            / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+        )
+        run_command(
+            [
+                sys.executable,
+                str(scripts_dir / "add_mate_mapq.py"),
+                "-i",
+                str(control_discordant),
+                "-b",
+                str(control_bam),
+                "-o",
+                str(control_discordant_with_mapq),
+            ]
+        )
 
     windows = tables_dir / f"{pid}_discordant_reads_1_kb_windows.tsv"
     run_command(
@@ -323,8 +340,6 @@ def process_sample(args, scripts_dir):
             str(scripts_dir / "visualize_telomere_insertions.py"),
             "--tumor",
             str(tumor_bam),
-            "--control",
-            str(control_bam),
             "--ref",
             args.reference_fasta,
             "--bed",
@@ -333,8 +348,6 @@ def process_sample(args, scripts_dir):
             args.samtoolsbin,
             "--colored_reads_tumor",
             str(tumor_discordant_with_mapq),
-            "--colored_reads_control",
-            str(control_discordant_with_mapq),
             "--clipped_reads_tumor",
             str(clipped),
             "--prefix",
@@ -342,6 +355,15 @@ def process_sample(args, scripts_dir):
             "--outfile",
             str(plot_zoomed_in_dir / f"{pid}_done.txt"),
         ]
+        if use_control:
+            visualize_cmd.extend(
+                [
+                    "--control",
+                    str(control_bam),
+                    "--colored_reads_control",
+                    str(control_discordant_with_mapq),
+                ]
+            )
         run_command(visualize_cmd)
 
 
