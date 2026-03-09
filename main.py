@@ -11,7 +11,7 @@ def parse_args():
         description="Run the TelomereRepeatLoci workflow without Snakemake/YAML."
     )
     parser.add_argument("--tumor-bam", required=True)
-    parser.add_argument("--control-bam", required=True)
+    parser.add_argument("--control-bam")
     parser.add_argument(
         "--telomerehunter-dir",
         required=True,
