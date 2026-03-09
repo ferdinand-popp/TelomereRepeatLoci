@@ -385,7 +385,7 @@ def get_version_from_package():
 def main():
     print(f"TelomereRepeatLoci - version {get_version_from_package()}")
     args = parse_args()
-    scripts_dir = Path(__file__).resolve().parent / "src"
+    scripts_dir = Path(__file__).resolve().parent
     print("--- Processing sample ---")
     process_sample(args, scripts_dir)
 
