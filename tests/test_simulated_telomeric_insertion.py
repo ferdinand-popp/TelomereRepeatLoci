@@ -53,28 +53,27 @@ def _write_alignment_bam(path: Path) -> None:
     pysam.index(str(path))
 
 
-def _write_intratelomeric_bam(path: Path) -> None:
+def _write_filtered_bam(path: Path) -> None:
     header = {
         "HD": {"VN": "1.0", "SO": "coordinate"},
         "SQ": [{"SN": "1", "LN": 100000}],
     }
 
     with pysam.AlignmentFile(path, "wb", header=header) as bam:
-        for idx, (read_name, mate_pos) in enumerate(
-            [("disc1", 1201), ("disc2", 1221), ("disc3", 1241)]
-        ):
+        # create a few reads representing filtered (non-intratelomeric) alignments
+        for read_name, pos in [("filt1", 1300), ("filt2", 1320), ("filt3", 1340)]:
             read = pysam.AlignedSegment()
             read.query_name = read_name
-            read.flag = 1
+            read.flag = 0
             read.reference_id = 0
-            read.reference_start = 100 + idx * 10
-            read.mapping_quality = 20
+            read.reference_start = pos - 1
+            read.mapping_quality = 60
             read.cigarstring = "50M"
-            read.next_reference_id = 0
-            read.next_reference_start = mate_pos - 1
-            read.query_sequence = "T" * 50
+            read.query_sequence = "C" * 50
             read.query_qualities = pysam.qualitystring_to_array("I" * 50)
             bam.write(read)
+
+    pysam.index(str(path))
 
 
 def _write_samtools_stub(path: Path) -> None:
@@ -143,13 +142,18 @@ def test_pipeline_with_simulated_discordant_reads() -> None:
     pid = "PID001"
 
     telomerehunter_dir = tmp_path / "telomerehunter_output"
-    telomerehunter_dir.mkdir(parents=True)
+    telomerehunter_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create the TelomereHunter sample directory with the exact token expected by main.py
+    th_sample_dir = telomerehunter_dir / f"tumor_TelomerCnt_{pid}"
+    th_sample_dir.mkdir(parents=True, exist_ok=True)
 
     alignment_bam = tmp_path / "tumor_input.bam"
-    intratel_bam = telomerehunter_dir / f"{pid}_filtered_intratelomeric.bam"
+    # place the filtered BAM inside the TelomereHunter sample dir and name it "<PID>_filtered.bam"
+    filtered_bam = th_sample_dir / f"{pid}_filtered.bam"
 
     _write_alignment_bam(alignment_bam)
-    _write_intratelomeric_bam(intratel_bam)
+    _write_filtered_bam(filtered_bam)
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

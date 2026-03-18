@@ -7,9 +7,7 @@ from pathlib import Path
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Run the TelomereRepeatLoci workflow."
-    )
+    parser = argparse.ArgumentParser(description="Run the TelomereRepeatLoci workflow.")
     parser.add_argument("--tumor-bam", required=True, help="Required Tumor BAM file.")
     parser.add_argument(
         "--control-bam",
