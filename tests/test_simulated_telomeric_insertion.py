@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+import shutil
 
 import pysam
 
@@ -136,7 +137,8 @@ if __name__ == '__main__':
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
+def test_pipeline_with_simulated_discordant_reads() -> None:
+    tmp_path = Path("/Users/ferdinandpopp/PycharmProjects/TelomereRepeatLoci/debug")
     repo_root = Path(__file__).resolve().parents[1]
     pid = "PID001"
 
@@ -157,70 +159,120 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
     env = dict(os.environ)
     env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
 
-    subprocess.run(
-        [
-            sys.executable,
-            str(repo_root / "src" / "main.py"),
-            "--tumor-bam",
-            str(alignment_bam),
-            "--telomerehunter-dir",
-            str(telomerehunter_dir),
-        ],
-        check=True,
-        cwd=repo_root,
-        env=env,
-    )
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                str(repo_root / "src" / "main.py"),
+                "--tumor-bam",
+                str(alignment_bam),
+                "--telomerehunter-dir",
+                str(telomerehunter_dir),
+            ],
+            check=True,
+            cwd=repo_root,
+            env=env,
+        )
 
-    output_dir = (
-        telomerehunter_dir.parent / f"{telomerehunter_dir.name}_TelomereRepeatLoci"
-    )
+    finally:
+        debug_root = repo_root / "debug" / "test_simulated_telomeric_insertion"
+        debug_root.mkdir(parents=True, exist_ok=True)
 
-    windows_file = output_dir / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
-    candidates_file = (
-        output_dir
-        / "candidate_region_tables"
-        / f"{pid}_telomere_insertions_candidate_regions.tsv"
-    )
-    extended_file = (
-        output_dir
-        / "candidate_region_tables"
-        / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
-    )
-    consensus_file = (
-        output_dir
-        / "candidate_region_tables"
-        / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
-    )
-    bed_zoomed_out = (
-        output_dir
-        / "plots"
-        / "bedfiles"
-        / "zoomed_out"
-        / f"{pid}_telomere_insertions.bed"
-    )
+        output_dir = (
+            telomerehunter_dir.parent / f"{telomerehunter_dir.name}_TelomereRepeatLoci"
+        )
 
-    for path in [
-        windows_file,
-        candidates_file,
-        extended_file,
-        consensus_file,
-        bed_zoomed_out,
-    ]:
-        assert path.exists()
+        # windows_file = (
+        #     output_dir / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
+        # )
+        # candidates_file = (
+        #     output_dir
+        #     / "candidate_region_tables"
+        #     / f"{pid}_telomere_insertions_candidate_regions.tsv"
+        # )
+        # extended_file = (
+        #     output_dir
+        #     / "candidate_region_tables"
+        #     / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
+        # )
+        # consensus_file = (
+        #     output_dir
+        #     / "candidate_region_tables"
+        #     / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
+        # )
+        # bed_zoomed_out = (
+        #     output_dir
+        #     / "plots"
+        #     / "bedfiles"
+        #     / "zoomed_out"
+        #     / f"{pid}_telomere_insertions.bed"
+        # )
 
-    with windows_file.open(newline="") as handle:
-        windows_rows = list(csv.DictReader(handle, delimiter="\t"))
-    assert len(windows_rows) == 1
-    assert windows_rows[0]["window"] == "1_1000_+"
-    assert windows_rows[0]["tumor_discordant_read_count"] == "3"
+        # Persist the entire output directory into debug_root for inspection
+        if output_dir.exists():
+            dest_dir = debug_root / output_dir.name
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+            try:
+                # Python 3.8+ supports dirs_exist_ok
+                shutil.copytree(output_dir, dest_dir, dirs_exist_ok=True)
+            except TypeError:
+                # Fallback for older Python versions
+                shutil.copytree(output_dir, dest_dir)
+        else:
+            # Ensure debug root exists even if no output produced
+            debug_root.mkdir(parents=True, exist_ok=True)
 
-    with extended_file.open(newline="") as handle:
-        extended_rows = list(csv.DictReader(handle, delimiter="\t"))
-    assert len(extended_rows) == 1
-    assert extended_rows[0]["insertion_site"] == "1500"
-    assert extended_rows[0]["reads_supporting_insertion_pos"] == "3"
+        # Use the persisted copy for assertions/reads
+        copied_base = debug_root / output_dir.name
+        copied_windows = (
+            copied_base / "tables" / f"{pid}_discordant_reads_1_kb_windows.tsv"
+        )
+        copied_candidates = (
+            copied_base
+            / "candidate_region_tables"
+            / f"{pid}_telomere_insertions_candidate_regions.tsv"
+        )
+        copied_extended = (
+            copied_base
+            / "candidate_region_tables"
+            / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
+        )
+        copied_consensus = (
+            copied_base
+            / "candidate_region_tables"
+            / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
+        )
+        copied_bed_zoomed_out = (
+            copied_base
+            / "plots"
+            / "bedfiles"
+            / "zoomed_out"
+            / f"{pid}_telomere_insertions.bed"
+        )
 
-    with consensus_file.open(newline="") as handle:
-        consensus_rows = list(csv.DictReader(handle, delimiter="\t"))
-    assert len(consensus_rows) == 1
-    assert consensus_rows[0]["consensus"]
+        for path in [
+            copied_windows,
+            copied_candidates,
+            copied_extended,
+            copied_consensus,
+            copied_bed_zoomed_out,
+        ]:
+            assert path.exists(), f"Expected persisted file {path} to exist"
+
+        with copied_windows.open(newline="") as handle:
+            windows_rows = list(csv.DictReader(handle, delimiter="\t"))
+        assert len(windows_rows) == 1
+        assert windows_rows[0]["window"] == "1_1000_+"
+        assert windows_rows[0]["tumor_discordant_read_count"] == "3"
+
+        with copied_extended.open(newline="") as handle:
+            extended_rows = list(csv.DictReader(handle, delimiter="\t"))
+        assert len(extended_rows) == 1
+        assert extended_rows[0]["insertion_site"] == "1500"
+        assert extended_rows[0]["reads_supporting_insertion_pos"] == "3"
+
+        with copied_consensus.open(newline="") as handle:
+            consensus_rows = list(csv.DictReader(handle, delimiter="\t"))
+        assert len(consensus_rows) == 1
+        assert consensus_rows[0]["consensus"]
