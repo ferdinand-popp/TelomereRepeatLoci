@@ -8,13 +8,13 @@ from pathlib import Path
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run the TelomereRepeatLoci workflow without Snakemake/YAML."
+        description="Run the TelomereRepeatLoci workflow."
     )
-    parser.add_argument("--tumor-bam", required=True)
+    parser.add_argument("--tumor-bam", required=True, help="Required Tumor BAM file.")
     parser.add_argument(
         "--control-bam",
         default="",
-        help="Optional control BAM. If not provided, workflow runs in tumor-only mode.",
+        help="Optional control BAM file. If not provided, workflow runs in tumor-only mode.",
     )
     parser.add_argument(
         "--telomerehunter-dir",
