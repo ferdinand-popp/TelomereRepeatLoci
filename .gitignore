@@ -2,3 +2,5 @@ internal.md
 /.venv
 __pycache__/
 *.py[cod]
+/data
+/output

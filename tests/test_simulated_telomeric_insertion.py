@@ -160,8 +160,8 @@ def test_pipeline_with_simulated_discordant_reads(tmp_path: Path) -> None:
     subprocess.run(
         [
             sys.executable,
-            str(repo_root / "main.py"),
-            "--input-bam",
+            str(repo_root / "src" / "main.py"),
+            "--tumor-bam",
             str(alignment_bam),
             "--telomerehunter-dir",
             str(telomerehunter_dir),

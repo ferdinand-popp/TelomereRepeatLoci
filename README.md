@@ -72,10 +72,16 @@ To rule out remaining false positives, each telomere repeat locus should be chec
 
 ### Running the workflow
 
+Using uv (python package manager) is recommended to run the workflow. After cloning the repository, run `uv sync` to install the required dependencies.
+```bash
+git clone https://github.com/ferdinand-popp/TelomereRepeatLoci.git
+uv sync
+```
+
 The workflow is now started directly via Python (no Snakemake/YAML config required):
 
 ```bash
-python main.py \
+uv run src/main.py \
   --input-bam /path/to/tumor_input.bam \
   --telomerehunter-dir /path/to/TelomereHunterOutputDir \
   --blacklist /path/to/blacklist.tsv \
@@ -88,7 +94,7 @@ python main.py \
 Minimal single-sample run:
 
 ```bash
-python main.py \
+uv run src/main.py \
   --input-bam /path/to/tumor_input.bam \
   --telomerehunter-dir /path/to/TelomereHunterOutputDir
 ```
