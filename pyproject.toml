@@ -1,7 +1,11 @@
 [project]
 name = "telomererepeatloci"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analyze telomere repeat loci in genomic sequences. Belongs to the TelomereHunter2 toolkit."
+authors = [
+    { name = "Ferdinand Popp", email = "" },
+    { name = "Lina Sieverling", email = "" }
+]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,4 +18,5 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.5",
+    "pre-commit>=4.5.1",
 ]
