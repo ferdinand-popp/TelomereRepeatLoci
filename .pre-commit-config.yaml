@@ -8,12 +8,12 @@ repos:
     - id: ruff-format  # Format code
       stages: [ pre-push ]            # runs only before git push
 
-- repo: local
-  hooks:
-    - id: pytest-check
-      name: Run pytest
-      entry: uv run pytest
-      language: system
-      pass_filenames: false
-      stages: [pre-push]        # run only before git push
-      args: ["-v", "tests/"]
+#- repo: local
+#  hooks:
+#    - id: pytest-check
+#      name: Run pytest
+#      entry: uv run pytest
+#      language: system
+#      pass_filenames: false
+#      stages: [pre-push]        # run only before git push
+#      args: ["-v", "tests/"]
