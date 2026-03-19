@@ -18,28 +18,36 @@ def _write_alignment_bam(path: Path) -> None:
     }
 
     with pysam.AlignmentFile(path, "wb", header=header) as bam:
-        for read_name, pos in [("disc1", 1201), ("disc2", 1221), ("disc3", 1241)]:
+        # Add non-telomeric reads
+        for read_name, pos in [("read1/1", 1201), ("read1/2", 1251), ("read2/1", 1301), ("read2/2", 1351)]:
             read = pysam.AlignedSegment()
-            read.query_name = read_name
-            read.flag = 0
+            read.query_name = read_name.split('/')[0]
+            read.flag = 99 if "/1" in read_name else 147  # Properly paired flags
             read.reference_id = 0
             read.reference_start = pos - 1
             read.mapping_quality = 60
             read.cigarstring = "50M"
             read.query_sequence = "A" * 50
             read.query_qualities = pysam.qualitystring_to_array("I" * 50)
+            read.next_reference_id = 0
+            read.next_reference_start = pos + 50 if "/1" in read_name else pos - 50
+            read.template_length = 100 if "/1" in read_name else -100
             bam.write(read)
 
-        clipped_specs = [
-            ("clip1", 1409, "90M10S", "TTAGGGTTAG"),
-            ("clip2", 1414, "85M15S", "TTAGGGTTAGGGTTA"),
-            ("clip3", 1419, "80M20S", "TTAGGGTTAGGGTTAGGGTT"),
+        # Add telomeric reads
+        telomeric_reads = [
+            ("tel1/1", 1400, "40M10S", "TTAGGGTTAG"),
+            ("tel1/2", 1450, "50M", ""),
+            ("tel2/1", 1500, "35M15S", "TTAGGGTTAGGGTTA"),
+            ("tel2/2", 1550, "50M", ""),
+            ("tel3/1", 1600, "30M20S", "TTAGGGTTAGGGTTAGGGTT"),
+            ("tel3/2", 1650, "50M", ""),
         ]
-        for read_name, start0, cigar, tel_clip in clipped_specs:
+        for read_name, start0, cigar, tel_clip in telomeric_reads:
             match_len = int(cigar.split("M", 1)[0])
             read = pysam.AlignedSegment()
-            read.query_name = read_name
-            read.flag = 0
+            read.query_name = read_name.split('/')[0]
+            read.flag = 99 if "/1" in read_name else 147  # Properly paired flags
             read.reference_id = 0
             read.reference_start = start0
             read.mapping_quality = 60
@@ -48,6 +56,65 @@ def _write_alignment_bam(path: Path) -> None:
             read.query_qualities = pysam.qualitystring_to_array(
                 "I" * (match_len + len(tel_clip))
             )
+            read.next_reference_id = 0
+            read.next_reference_start = start0 + 50 if "/1" in read_name else start0 - 50
+            read.template_length = 100 if "/1" in read_name else -100
+            bam.write(read)
+
+        # Add discordant reads (mapped mate and unmapped mate with telomeric motif)
+        discordant_reads = [
+            ("disc1", 1700, "50M", "TTAGGGTTAGGGTTAGGG"),  # Mapped mate and unmapped mate
+            ("disc2", 1800, "50M", "TTAGGGTTAGGG"),  # Mapped mate and unmapped mate
+        ]
+        for read_name, start0, cigar, tel_clip in discordant_reads:
+            # Mapped mate
+            mapped_read = pysam.AlignedSegment()
+            mapped_read.query_name = read_name
+            mapped_read.flag = 99  # Properly paired, first in pair
+            mapped_read.reference_id = 0
+            mapped_read.reference_start = start0
+            mapped_read.mapping_quality = 60
+            mapped_read.cigarstring = cigar
+            mapped_read.query_sequence = "A" * 50
+            mapped_read.query_qualities = pysam.qualitystring_to_array("I" * 50)
+            mapped_read.next_reference_id = -1  # Mate is unmapped
+            mapped_read.next_reference_start = 0
+            mapped_read.template_length = 0
+            bam.write(mapped_read)
+
+            # Unmapped mate with telomeric motif
+            unmapped_read = pysam.AlignedSegment()
+            unmapped_read.query_name = read_name
+            unmapped_read.flag = 141  # Unmapped, second in pair
+            unmapped_read.reference_id = -1
+            unmapped_read.reference_start = -1
+            unmapped_read.mapping_quality = 0
+            unmapped_read.cigarstring = None
+            unmapped_read.query_sequence = tel_clip
+            unmapped_read.query_qualities = pysam.qualitystring_to_array("I" * len(tel_clip))
+            unmapped_read.next_reference_id = 0  # Mate is mapped
+            unmapped_read.next_reference_start = start0
+            unmapped_read.template_length = 0
+            bam.write(unmapped_read)
+
+        # Add unmapped reads (must be written last)
+        discordant_telomeric_reads = [
+            ("disc1", 1, "TTAGGGTTAGGGTTAGGG"),
+            ("disc2", 1, "TTAGGGTTAGGG"),
+        ]
+        for read_name, reference, tel_clip in discordant_telomeric_reads:
+            read = pysam.AlignedSegment()
+            read.query_name = read_name
+            read.flag = 141  # Unmapped, second in pair
+            read.reference_id = reference
+            read.reference_start = reference
+            read.mapping_quality = 0
+            read.cigarstring = None
+            read.query_sequence = tel_clip
+            read.query_qualities = pysam.qualitystring_to_array("I" * len(tel_clip))
+            read.next_reference_id = 0  # Reference ID of the mapped mate
+            read.next_reference_start = 1700 if "disc1" in read_name else 1800
+            read.template_length = 0
             bam.write(read)
 
     pysam.index(str(path))
@@ -60,17 +127,24 @@ def _write_filtered_bam(path: Path) -> None:
     }
 
     with pysam.AlignmentFile(path, "wb", header=header) as bam:
-        # create a few reads representing filtered (non-intratelomeric) alignments
-        for read_name, pos in [("filt1", 1300), ("filt2", 1320), ("filt3", 1340)]:
+        # Include only unmapped telomeric reads from discordant pairs
+        discordant_telomeric_reads = [
+            ("disc1", 1, "TTAGGGTTAGGGTTAGGG"),
+            ("disc2", 1, "TTAGGGTTAGGG"),
+        ]
+        for read_name, reference, tel_clip in discordant_telomeric_reads:
             read = pysam.AlignedSegment()
             read.query_name = read_name
-            read.flag = 0
-            read.reference_id = 0
-            read.reference_start = pos - 1
-            read.mapping_quality = 60
-            read.cigarstring = "50M"
-            read.query_sequence = "C" * 50
-            read.query_qualities = pysam.qualitystring_to_array("I" * 50)
+            read.flag = 141  # Unmapped, second in pair
+            read.reference_id = reference
+            read.reference_start = reference
+            read.mapping_quality = 0
+            read.cigarstring = None
+            read.query_sequence = tel_clip
+            read.query_qualities = pysam.qualitystring_to_array("I" * len(tel_clip))
+            read.next_reference_id = 0  # Reference ID of the mapped mate
+            read.next_reference_start = 1700 if "disc1" in read_name else 1800
+            read.template_length = 0
             bam.write(read)
 
     pysam.index(str(path))
@@ -156,7 +230,7 @@ def test_pipeline_with_simulated_discordant_reads() -> None:
     _write_filtered_bam(filtered_bam)
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     samtools_stub = bin_dir / "samtools"
     _write_samtools_stub(samtools_stub)
 
