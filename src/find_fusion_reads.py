@@ -22,6 +22,7 @@ def read_pair_label(read):
 
 
 def alignment_end(start_1based, cigartuples):
+    """Return 1-based inclusive reference end for an alignment."""
     if not cigartuples:
         return start_1based
     ref_len = sum(length for op, length in cigartuples if op in REF_CONSUME_OPS)
@@ -59,6 +60,7 @@ def get_primary_sequence(bam, sa_read, primary_chr, primary_pos, primary_strand)
     if not primary_chr or primary_pos <= 0:
         return sa_read.query_sequence or ""
     start0 = max(0, primary_pos - 1)
+    # Query exactly the SA-tag primary position in 0-based half-open coordinates.
     end0 = primary_pos
     for read in bam.fetch(primary_chr, start0, end0):
         if read.query_name != sa_read.query_name:
