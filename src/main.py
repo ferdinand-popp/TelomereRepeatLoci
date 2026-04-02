@@ -56,13 +56,26 @@ def run_command(command):
 
 
 def get_filtered_bam(th_sample_dir):
-    matches = sorted(Path(th_sample_dir).glob("*_filtered.bam"))
+    sample_dir = Path(th_sample_dir)
+    preferred = sorted(sample_dir.glob("*_filtered_intratelomeric.bam"))
+    if len(preferred) == 1:
+        return preferred[0]
+    if len(preferred) > 1:
+        match_names = ", ".join(str(match) for match in preferred)
+        raise ValueError(
+            "Multiple *_filtered_intratelomeric.bam files found in "
+            f"{sample_dir}: {match_names}"
+        )
+
+    matches = sorted(sample_dir.glob("*_filtered.bam"))
     if not matches:
-        raise FileNotFoundError(f"No *_filtered.bam found in {th_sample_dir}")
+        raise FileNotFoundError(
+            f"No *_filtered_intratelomeric.bam or *_filtered.bam found in {sample_dir}"
+        )
     if len(matches) > 1:
         match_names = ", ".join(str(match) for match in matches)
         raise ValueError(
-            f"Multiple *_filtered.bam files found in {th_sample_dir}: {match_names}"
+            f"Multiple *_filtered.bam files found in {sample_dir}: {match_names}"
         )
     return matches[0]
 
