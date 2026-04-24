@@ -15,6 +15,17 @@ def parse_args():
         help="Optional control BAM file. If not provided, workflow runs in tumor-only mode.",
     )
     parser.add_argument(
+        "--tel-tumor-bam",
+        required=True,
+        default="",
+        help="Tumor BAM file with filtered tel reads.",
+    )
+    parser.add_argument(
+        "--tel-control-bam",
+        default="",
+        help="Control BAM file with filtered tel reads.",
+    )
+    parser.add_argument(
         "--output-dir",
         default="",
         help=(
@@ -109,7 +120,7 @@ def process_sample(args, scripts_dir):
 
     # Derive the tumor TelomereHunter directory and PID directly from the BAM path.
     # Expected layout: <telomerehunter-dir>/tumor_TelomerCnt_<PID>/<bam-file>
-    tumor_th_dir = tumor_bam.parent
+    tumor_th_dir = Path(args.tel_tumor_bam).parent
     pid = extract_pid_from_folder(tumor_th_dir)
     print(f"Detected tumor TelomereHunter dir : {tumor_th_dir}")
     print(f"Detected PID                      : {pid}")
@@ -127,7 +138,7 @@ def process_sample(args, scripts_dir):
 
         # Derive the control TelomereHunter directory from the control BAM path.
         # Expected layout: <telomerehunter-dir>/control_TelomerCnt_<PID>/<bam-file>
-        control_th_dir = control_bam.parent
+        control_th_dir = Path(args.tel_control_bam).parent
         control_pid = extract_pid_from_folder(control_th_dir)
         print(f"Detected control TelomereHunter dir: {control_th_dir}")
 
