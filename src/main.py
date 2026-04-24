@@ -15,20 +15,12 @@ def parse_args():
         help="Optional control BAM file. If not provided, workflow runs in tumor-only mode.",
     )
     parser.add_argument(
-        "--telomerehunter-dir",
-        required=True,
-        help=(
-            "Parent directory containing TelomereHunter output folders, e.g. "
-            "<telomerehunter-dir>/tumor_TelomerCnt_<PID> and optionally "
-            "<telomerehunter-dir>/control_TelomerCnt_<PID>."
-        ),
-    )
-    parser.add_argument(
         "--output-dir",
         default="",
         help=(
             "Optional output directory. If not provided, a sibling directory named "
-            "<telomerehunter-dir>_TelomereRepeatLoci is created."
+            "<telomerehunter-dir>_TelomereRepeatLoci is created next to the tumor "
+            "TelomereHunter folder."
         ),
     )
     parser.add_argument("--tumor-sample-name", default="tumor")
@@ -96,60 +88,10 @@ def extract_pid_from_folder(folder_path):
     return pid
 
 
-def detect_tumor_th_dir(telomerehunter_dir):
-    base = Path(telomerehunter_dir)
-    if not base.exists():
-        raise FileNotFoundError(f"Missing telomerehunter-dir: {base}")
-    if not base.is_dir():
-        raise NotADirectoryError(f"--telomerehunter-dir is not a directory: {base}")
-
-    tumor_dirs = [
-        child
-        for child in base.iterdir()
-        if child.is_dir() and "tumor_telomercnt_" in child.name.lower()
-    ]
-
-    if len(tumor_dirs) != 1:
-        names = ", ".join(str(p) for p in sorted(tumor_dirs)) or "none"
-        raise ValueError(
-            f"Expected exactly 1 tumor TelomereHunter folder under {base}, "
-            f"found {len(tumor_dirs)}: {names}"
-        )
-
-    tumor_dir = tumor_dirs[0]
-    pid = extract_pid_from_folder(tumor_dir)
-    return tumor_dir, pid
-
-
-def detect_control_th_dir_for_pid(telomerehunter_dir, pid):
-    base = Path(telomerehunter_dir)
-    control_dirs = [
-        child
-        for child in base.iterdir()
-        if child.is_dir() and "control_telomercnt_" in child.name.lower()
-    ]
-
-    if len(control_dirs) != 1:
-        names = ", ".join(str(p) for p in sorted(control_dirs)) or "none"
-        raise ValueError(
-            f"Expected exactly 1 control TelomereHunter folder under {base}, "
-            f"found {len(control_dirs)}: {names}"
-        )
-
-    control_dir = control_dirs[0]
-    control_pid = extract_pid_from_folder(control_dir)
-    if control_pid != pid:
-        raise ValueError(
-            "Tumor/control PID mismatch from TelomereHunter folder names: "
-            f"tumor PID='{pid}', control PID='{control_pid}'."
-        )
-    return control_dir
-
-
-def get_output_dir(args):
+def get_output_dir(args, tumor_th_dir):
     if args.output_dir:
         return Path(args.output_dir)
-    telomerehunter_dir = Path(args.telomerehunter_dir)
+    telomerehunter_dir = tumor_th_dir.parent
     return (
         telomerehunter_dir.parent
         / f"{telomerehunter_dir.name.replace('_TelomerCnt', '')}_TelomereRepeatLoci"
@@ -165,22 +107,39 @@ def process_sample(args, scripts_dir):
     if not tumor_bam.exists():
         raise FileNotFoundError(f"Missing tumor BAM: {tumor_bam}")
 
+    # Derive the tumor TelomereHunter directory and PID directly from the BAM path.
+    # Expected layout: <telomerehunter-dir>/tumor_TelomerCnt_<PID>/<bam-file>
+    tumor_th_dir = tumor_bam.parent
+    pid = extract_pid_from_folder(tumor_th_dir)
+    print(f"Detected tumor TelomereHunter dir : {tumor_th_dir}")
+    print(f"Detected PID                      : {pid}")
+
+    tumor_filtered_bam = get_filtered_bam(tumor_th_dir)
+
     use_control = bool(args.control_bam)
     control_bam = None
+    control_filtered_bam = None
+
     if use_control:
         control_bam = Path(args.control_bam)
         if not control_bam.exists():
             raise FileNotFoundError(f"Missing control BAM: {control_bam}")
 
-    tumor_th_dir, pid = detect_tumor_th_dir(args.telomerehunter_dir)
-    tumor_filtered_bam = get_filtered_bam(tumor_th_dir)
+        # Derive the control TelomereHunter directory from the control BAM path.
+        # Expected layout: <telomerehunter-dir>/control_TelomerCnt_<PID>/<bam-file>
+        control_th_dir = control_bam.parent
+        control_pid = extract_pid_from_folder(control_th_dir)
+        print(f"Detected control TelomereHunter dir: {control_th_dir}")
 
-    control_filtered_bam = None
-    if use_control:
-        control_th_dir = detect_control_th_dir_for_pid(args.telomerehunter_dir, pid)
+        if control_pid != pid:
+            raise ValueError(
+                "Tumor/control PID mismatch from TelomereHunter folder names: "
+                f"tumor PID='{pid}', control PID='{control_pid}'."
+            )
+
         control_filtered_bam = get_filtered_bam(control_th_dir)
 
-    output_dir = get_output_dir(args)
+    output_dir = get_output_dir(args, tumor_th_dir)
 
     tables_dir = output_dir / "tables"
     clipped_dir = output_dir / "clipped_reads"
