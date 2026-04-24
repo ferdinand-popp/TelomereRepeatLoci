@@ -38,7 +38,7 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
         if missing_columns:
             raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
 
-        # start=2 because row 1 is the TSV header line
+        # start=2 so the first data row (after header) is reported as line 2
         for row_number, row in enumerate(reader, start=2):
             pid = row["pid"].strip()
             if pid == "":
@@ -134,7 +134,7 @@ if len(config["samples"])==2:
     shell_command_addition = "-ibc {input[1]} -pl "
     node_addition = ",nodes=1:ppn=2"
 elif len(config["samples"])==1:
-    input_list = [lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])]
+    input_list = [lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]), lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])]
     output_list = [config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam']
     shell_command_addition = ""
     node_addition = ""

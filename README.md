@@ -64,8 +64,8 @@ In `config_snakemake_TelomereRepeatLoci_example.yaml`:
 ## Run
 
 ```bash
-snakemake -s /path/to/TelomereRepeatLoci/Snakefile \
-  --configfile /path/to/TelomereRepeatLoci/config_snakemake_TelomereRepeatLoci_example.yaml \
+snakemake -s $REPO_DIR/Snakefile \
+  --configfile $REPO_DIR/config_snakemake_TelomereRepeatLoci_example.yaml \
   --cores 1
 ```
 
