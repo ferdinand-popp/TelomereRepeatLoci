@@ -22,6 +22,7 @@ This workflow now supports a **file-path input mode** so you can run it with BAM
 
 Create a TSV file (for example `bam_files.tsv`) with explicit BAM paths.
 Values must be **tab-separated**.
+If tabs are hard to see in your editor, use this form: `pid<TAB>tumor_bam<TAB>control_bam`.
 
 ### Tumor-control mode
 

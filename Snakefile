@@ -41,6 +41,7 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
         for row in reader:
             pid = row["pid"].strip()
             if pid == "":
+                print("Skipping row with empty pid in bam_files_tsv: " + tsv_file)
                 continue
             bam_paths[pid] = {}
             for sample_name in sample_names:
