@@ -38,10 +38,10 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
         if missing_columns:
             raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
 
-        for row in reader:
+        for row_number, row in enumerate(reader, start=2):
             pid = row["pid"].strip()
             if pid == "":
-                print("Skipping row with empty pid in bam_files_tsv: " + tsv_file)
+                print("Skipping row " + str(row_number) + " with empty pid in bam_files_tsv: " + tsv_file)
                 continue
             bam_paths[pid] = {}
             for sample_name in sample_names:
