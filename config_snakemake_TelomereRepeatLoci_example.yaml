@@ -1,15 +1,27 @@
 #------------------------------------------------
-# input directories
+# input BAMs (preferred)
 #------------------------------------------------
-results_per_pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid    #needs to contain a directory for each sample with the BAM files in the following format: results_per_pid/{PID}/alignment/{tumor/control}_PID{bam_suffix}
+# Provide a TSV file with explicit BAM paths so workflow does not scan input directories.
+# Required header columns:
+#   pid    tumor_bam    control_bam
+# For tumor-only runs (samples: [tumor]), only pid and tumor_bam are required.
+bam_files_tsv: /path/to/bam_files.tsv
+
+
+#------------------------------------------------
+# legacy directory-based input mode (optional)
+#------------------------------------------------
+# Keep these values only if bam_files_tsv is set to no_file.
+results_per_pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid
+pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid
+bam_suffix: _merged.mdup.bam
+
+
+#------------------------------------------------
+# output directories
+#------------------------------------------------
 telomerehunter_dir: <OUTPUT_PATH_FOR_TELOMEREHUNTER_RESULTS>/TelomereHunterResults
-pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid              #directory with all the sample names
 
-bam_suffix: _merged.mdup.bam   # BAM files need to have the format {sample}_{pid}{bam_suffix}
-
-#------------------------------------------------
-# output directory
-#------------------------------------------------
 telomereinsertion_dir: <OUTPUT_PATH_FOR_TELOMEREREPEATLOCI_RESULTS>/TelomereRepeatLoci
 
 

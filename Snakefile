@@ -17,9 +17,58 @@ snakemake -s /home/sieverli/Code/telomere_insertion_analysis/snakemake_telomere_
 # get PIDs
 #---------------------------------------------------------------------------------------
 from os import listdir
+import csv
+import os
+
+
+def _is_enabled_config_path(path_value):
+    return path_value not in [None, "", "no_file"]
+
+
+def _load_bam_paths_from_tsv(tsv_file, sample_names):
+    bam_paths = {}
+    required_columns = ["pid"] + [sample_name + "_bam" for sample_name in sample_names]
+
+    with open(tsv_file, "r") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames is None:
+            raise ValueError("bam_files_tsv is empty: " + tsv_file)
+
+        missing_columns = [col for col in required_columns if col not in reader.fieldnames]
+        if len(missing_columns) > 0:
+            raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
+
+        for row in reader:
+            pid = row["pid"].strip()
+            if pid == "":
+                continue
+            bam_paths[pid] = {}
+            for sample_name in sample_names:
+                bam_column = sample_name + "_bam"
+                bam_paths[pid][sample_name] = row[bam_column].strip()
+
+    return bam_paths
+
+
+explicit_bam_files_tsv = config.get("bam_files_tsv", "no_file")
+use_explicit_bam_paths = _is_enabled_config_path(explicit_bam_files_tsv)
+
+if use_explicit_bam_paths:
+    bam_files_by_pid = _load_bam_paths_from_tsv(explicit_bam_files_tsv, config["samples"])
+else:
+    bam_files_by_pid = {}
+
+
+def get_alignment_bam(pid_name, sample_name):
+    if use_explicit_bam_paths:
+        return bam_files_by_pid[pid_name][sample_name]
+    return config["results_per_pid_dir"] + "/" + pid_name + "/alignment/" + sample_name + "_" + pid_name + config["bam_suffix"]
 
 if config["pids"] == "all":
-    pids = [i for i in listdir(config["results_per_pid_dir"]) if not i.startswith('.')]
+    if use_explicit_bam_paths:
+        pids = sorted(bam_files_by_pid.keys())
+    else:
+        pids = [i for i in listdir(config["results_per_pid_dir"]) if not i.startswith('.')]
 else:
     pids = config["pids"].split(' ')
 
@@ -32,7 +81,21 @@ pids_remove = []
 
 for pid_name in pids:
     for sample_name in config["samples"]:
-        if not os.path.exists(config["results_per_pid_dir"] + '/' + pid_name + '/alignment/' + sample_name + '_' + pid_name + config["bam_suffix"]):
+        bam_file = None
+        if use_explicit_bam_paths:
+            if pid_name not in bam_files_by_pid:
+                print(pid_name + ": no BAM entry found in bam_files_tsv, skipping this pid!")
+                pids_remove.append(pid_name)
+                break
+            bam_file = bam_files_by_pid[pid_name].get(sample_name, "")
+            if bam_file == "":
+                print(pid_name + ": BAM path for " + sample_name + " is missing in bam_files_tsv, skipping this pid!")
+                pids_remove.append(pid_name)
+                break
+        else:
+            bam_file = get_alignment_bam(pid_name, sample_name)
+
+        if not os.path.exists(bam_file):
             print(pid_name + ": alignment bam file for " + sample_name + " sample is missing, skipping this pid!")
             pids_remove.append(pid_name)
             break
@@ -64,12 +127,12 @@ rule all:
 #------------------------------------------------------------------
 
 if len(config["samples"])==2:
-    input_list = [config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"], config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][1] + '_{pid}' + config["bam_suffix"]]
+    input_list = [lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]), lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][1])]
     output_list = [config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', config["telomerehunter_dir"] + '/{pid}/' + config["samples"][1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam']
     shell_command_addition = "-ibc {input[1]} -pl "
     node_addition = ",nodes=1:ppn=2"
 elif len(config["samples"])==1:
-    input_list = [config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"], config["results_per_pid_dir"]]
+    input_list = [lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])]
     output_list = [config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam']
     shell_command_addition = ""
     node_addition = ""
@@ -123,7 +186,7 @@ rule find_discordant_reads:
 rule add_mate_mapq:
     input:
         discordant_reads = config["telomereinsertion_dir"] + '/tables/{pid}_{sample}_discordant_reads.tsv',
-        bam = config["results_per_pid_dir"] + '/{pid}/alignment/{sample}_{pid}' + config["bam_suffix"]
+        bam = lambda wildcards: get_alignment_bam(wildcards.pid, wildcards.sample)
     output:
         config["telomereinsertion_dir"] + '/tables/{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv'
     params:
@@ -201,9 +264,9 @@ rule get_candidate_regions:
 #------------------------------------------------------------------
 
 if len(config["samples"])==2:
-    bam = config["results_per_pid_dir"] + '/{pid}/alignment/{sample}_{pid}' + config["bam_suffix"]
+    bam = lambda wildcards: get_alignment_bam(wildcards.pid, wildcards.sample)
 elif len(config["samples"])==1:
-    bam = config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"]
+    bam = lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])
 
 rule find_fusion_reads:
     input: 
@@ -283,8 +346,8 @@ if len(config["samples"])==2:
     rule visualize_zoomed_in:
         input: 
             bed = config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            tumor_bam = config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"],
-            control_bam = config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][1] + '_{pid}' + config["bam_suffix"],
+            tumor_bam = lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
+            control_bam = lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][1]),
             discordant_reads_tumor = config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv',
             discordant_reads_control = config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][1] + '_discordant_reads_filtered_with_mapq.tsv',
             clipped_reads_tumor = config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv',
@@ -318,7 +381,7 @@ elif len(config["samples"])==1:
     rule visualize_zoomed_in:
         input: 
             bed = config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            tumor_bam = config["results_per_pid_dir"] + '/{pid}/alignment/' + config["samples"][0] + '_{pid}' + config["bam_suffix"],
+            tumor_bam = lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
             discordant_reads_tumor = config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv',
             clipped_reads_tumor = config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv' 
         output:
@@ -341,4 +404,3 @@ elif len(config["samples"])==1:
                    --clipped_reads_tumor {input.clipped_reads_tumor} \
                    --prefix " + config["telomereinsertion_dir"] + "/plots/zoomed_in/ \
                    --outfile {output}"
-
