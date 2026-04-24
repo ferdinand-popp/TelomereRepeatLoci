@@ -82,8 +82,8 @@ The workflow is now started directly via Python (no Snakemake/YAML config requir
 
 ```bash
 uv run src/main.py \
-  --input-bam /path/to/tumor_input.bam \
-  --telomerehunter-dir /path/to/TelomereHunterOutputDir \
+  --tumor-bam /path/to/tumor_input.bam \
+  --control-bam /path/to/control_input.bam \
   --blacklist /path/to/blacklist.tsv \
   --tumor-discordant-read-lower-limit 3 \
   --control-discordant-read-upper-limit 0 \
@@ -95,8 +95,7 @@ Minimal single-sample run:
 
 ```bash
 uv run src/main.py \
-  --input-bam /path/to/tumor_input.bam \
-  --telomerehunter-dir /path/to/TelomereHunterOutputDir
+  --tumor-bam /path/to/tumor_input.bam \
 ```
 
 By default, output files are written to a new sibling directory outside the provided

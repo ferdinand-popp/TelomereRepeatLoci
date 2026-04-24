@@ -1,29 +1,17 @@
+#!/usr/bin/env python3
 # Author: Lina Sieverling
-
-#!/usr/bin/python
-
-# Usage: python /home/sieverli/Code/telomere_insertion_analysis/snakemake_telomere_insertions/src/add_mate_mapq.py \
-#                -i <*_tumor_discordant_reads.tsv> \
-#                -b <*_merged.mdup.bam> \
-#                -o <*_discordant_reads_filtered_with_mapq.tsv>
-
-
-# Description: - parses tables with telomere insertion reads
-#              - skips all reads where mates are mapped to decoy sequences
-#              - retrieves mapping quality of mates from original BAM file and adds it to output table
-#              - if mate is not found, mapping quality is empty
-
 
 import sys
 import getopt
+import os
 import numpy
 import pysam
 
-# ----------------------------------------------------------------
-# read command line args
-# ----------------------------------------------------------------
-myopts, args = getopt.getopt(sys.argv[1:], "i:b:o:")
+telomere_insertion_table_file = None
+alignment_bam_file = None
+outfile_path = None
 
+myopts, args = getopt.getopt(sys.argv[1:], "i:b:o:")
 for opt, arg in myopts:
     if opt == "-i":
         telomere_insertion_table_file = arg
@@ -31,108 +19,153 @@ for opt, arg in myopts:
         alignment_bam_file = arg
     elif opt == "-o":
         outfile_path = arg
-    else:
-        print("Usage: %s -i input_table -b bam_file -o output_file" % sys.argv[0])
 
+if not (telomere_insertion_table_file and alignment_bam_file and outfile_path):
+    print(
+        f"Usage: {sys.argv[0]} -i input_table -b bam_file -o output_file",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
-# list of chromosomes accepted for output
 chromosome_list = [str(i) for i in range(1, 22 + 1)] + ["X", "Y"]
-
-#########################################################################################################################################
-
-# ----------------------------------------------------------------
-# read in table containing read names from telomere insertions
-# ----------------------------------------------------------------
+WINDOW_BP = 5000
+FALLBACK_CONTIG_SCAN = True
 
 telomere_insertion_table = numpy.genfromtxt(
     telomere_insertion_table_file,
     skip_header=1,
     delimiter="\t",
-    dtype=str,  # robust across numpy versions
+    dtype=str,
     encoding="utf-8",
     comments=None,
 )
 
-# If the input has only a single data line, genfromtxt returns 1D.
-# Normalize to 2D so the loop below works consistently.
-if telomere_insertion_table.ndim == 1:
-    telomere_insertion_table = numpy.atleast_2d(telomere_insertion_table)
+if telomere_insertion_table.size == 0:
+    rows = numpy.empty((0, 0), dtype=str)
+elif telomere_insertion_table.ndim == 1:
+    rows = numpy.atleast_2d(telomere_insertion_table)
+else:
+    rows = telomere_insertion_table
 
-# ----------------------------------------------------------------
-# get mapping quality and strand of mate from original BAM file
-# ----------------------------------------------------------------
+# --- ensure BAM can be opened ---
+try:
+    with pysam.AlignmentFile(alignment_bam_file, "rb") as bam_check:
+        if bam_check.closed:
+            raise OSError(f"Failed to open BAM file: {alignment_bam_file}")
+        has_idx = bam_check.has_index()
+except OSError as e:
+    print(f"[ERROR] Could not open BAM or check index: {e}", file=sys.stderr)
+    sys.exit(1)
 
-output = "\t".join(
-    ["read_name", "mate_chr", "mate_position", "mate_mapq", "mate_strand"]
-)
+# If no index: sort first, then index, then use sorted BAM
+bam_for_processing = alignment_bam_file
+if not has_idx:
+    base, ext = os.path.splitext(alignment_bam_file)
+    sorted_bam = f"{base}.sorted{ext if ext else '.bam'}"
 
-# Open BAM once, query many times (requires BAM index .bai/.csi)
-bam = pysam.AlignmentFile(alignment_bam_file, "rb")
-
-for read in telomere_insertion_table:
-    # Expect at least 3 columns: read_name, chromosome, position
-    if len(read) < 3:
-        continue
-
-    read_name = str(read[0]).strip()
-    chromosome = str(read[1]).strip()
-    position = str(read[2]).strip()
-
-    # skip mates mapped to decoy sequences
-    if chromosome not in chromosome_list:
-        continue
-
-    # pysam uses 0-based, half-open intervals for fetch.
-    # Input position here is expected to be 1-based (samtools region syntax),
-    # so convert to 0-based coordinates.
+    print(f"[INFO] BAM index missing for {alignment_bam_file}", file=sys.stderr)
+    print(f"[INFO] Sorting BAM -> {sorted_bam}", file=sys.stderr)
     try:
-        pos1 = int(position)
-    except ValueError:
-        mapq = ""
-        strand = ""
-        read_list = [read_name, chromosome, position, mapq, strand]
-        output += "\n" + "\t".join(read_list)
-        continue
+        pysam.sort("-o", sorted_bam, alignment_bam_file)
+    except Exception as e:
+        print(f"[ERROR] Failed to sort BAM: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    start0 = pos1 - 1
-    end0 = pos1  # fetch one base
-
-    mapq = ""
-    strand = ""
-
-    # Equivalent to: samtools view -F 2304 <bam> chr:pos-pos | grep "<read_name>"
-    # -F 2304 filters out: 0x100 (secondary) + 0x800 (supplementary)
+    print(f"[INFO] Creating index for sorted BAM -> {sorted_bam}", file=sys.stderr)
     try:
-        for aln in bam.fetch(chromosome, start0, end0):
-            # skip secondary and supplementary alignments (0x100 and 0x800)
-            if aln.is_secondary or aln.is_supplementary:
+        pysam.index(sorted_bam)
+    except Exception as e:
+        print(
+            f"[ERROR] Failed to create BAM index for sorted BAM: {e}", file=sys.stderr
+        )
+        sys.exit(1)
+
+    bam_for_processing = sorted_bam
+
+# main processing
+try:
+    with pysam.AlignmentFile(bam_for_processing, "rb") as bam:
+        if bam.closed:
+            raise OSError(f"Failed to open BAM file: {bam_for_processing}")
+
+        if not bam.has_index():
+            raise OSError(
+                f"BAM index still unavailable after sort/index attempt: {bam_for_processing}"
+            )
+
+        contigs = set(bam.references)
+
+        output_lines = [
+            "\t".join(
+                ["read_name", "mate_chr", "mate_position", "mate_mapq", "mate_strand"]
+            )
+        ]
+
+        for read in rows:
+            if len(read) < 3:
                 continue
 
-            # mimic grep for read_name (exact qname match)
-            if aln.query_name != read_name:
+            read_name = str(read[0]).strip()
+            chromosome = str(read[1]).strip()
+            position = str(read[2]).strip()
+
+            if chromosome not in chromosome_list:
                 continue
 
-            # Found the mate alignment at that locus
-            mapq = str(aln.mapping_quality)
+            mapq = ""
+            strand = ""
 
-            # Equivalent to checking flag & 0x10 for reverse strand
-            strand = "-" if aln.is_reverse else "+"
-            break
-    except (ValueError, OSError):
-        # ValueError can happen if contig not present in BAM header
-        # OSError can happen for missing index, etc.
-        mapq = ""
-        strand = ""
+            if chromosome not in contigs:
+                output_lines.append(
+                    "\t".join([read_name, chromosome, position, mapq, strand])
+                )
+                continue
 
-    read_list = [read_name, chromosome, position, mapq, strand]
-    output += "\n" + "\t".join(read_list)
+            try:
+                pos1 = int(position)  # expected 1-based
+            except ValueError:
+                output_lines.append(
+                    "\t".join([read_name, chromosome, position, mapq, strand])
+                )
+                continue
 
-bam.close()
+            contig_len = bam.get_reference_length(chromosome)
+            start0 = max(0, pos1 - 1 - WINDOW_BP)
+            end0 = min(contig_len, pos1 + WINDOW_BP)
 
-# ----------------------------------------------------------------
-# write output
-# ----------------------------------------------------------------
+            found = False
+            try:
+                for aln in bam.fetch(chromosome, start0, end0):
+                    if aln.is_secondary or aln.is_supplementary:
+                        continue
+                    if aln.query_name != read_name:
+                        continue
+                    mapq = str(aln.mapping_quality)
+                    strand = "-" if aln.is_reverse else "+"
+                    found = True
+                    break
 
-outfile = open(outfile_path, "w")
-outfile.write(output)
-outfile.close()
+                if (not found) and FALLBACK_CONTIG_SCAN:
+                    for aln in bam.fetch(chromosome):
+                        if aln.is_secondary or aln.is_supplementary:
+                            continue
+                        if aln.query_name != read_name:
+                            continue
+                        mapq = str(aln.mapping_quality)
+                        strand = "-" if aln.is_reverse else "+"
+                        break
+
+            except (ValueError, OSError):
+                mapq = ""
+                strand = ""
+
+            output_lines.append(
+                "\t".join([read_name, chromosome, position, mapq, strand])
+            )
+
+except OSError as e:
+    print(f"[ERROR] Could not open/read BAM during processing: {e}", file=sys.stderr)
+    sys.exit(1)
+
+with open(outfile_path, "w", encoding="utf-8") as outfile:
+    outfile.write("\n".join(output_lines))
