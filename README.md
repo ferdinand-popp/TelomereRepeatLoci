@@ -21,16 +21,21 @@ This workflow now supports a **file-path input mode** so you can run it with BAM
 ## Input file list (recommended mode)
 
 Create a TSV file (for example `bam_files.tsv`) with explicit BAM paths.
+Values must be **tab-separated**.
 
 ### Tumor-control mode
 
 Header:
 
-`pid	tumor_bam	control_bam`
+```text
+pid\tumor_bam\tcontrol_bam
+```
 
 Example:
 
-`PID001	/npc/path/PID001_tumor.bam	/npc/path/PID001_control.bam`
+```text
+PID001\t/npc/path/PID001_tumor.bam\t/npc/path/PID001_control.bam
+```
 
 ### Tumor-only mode
 
@@ -38,11 +43,15 @@ If your config uses only one sample (`samples: [tumor]`), provide:
 
 Header:
 
-`pid	tumor_bam`
+```text
+pid\ttumor_bam
+```
 
 Example:
 
-`PID001	/npc/path/PID001_tumor.bam`
+```text
+PID001\t/npc/path/PID001_tumor.bam
+```
 
 ## Config notes
 
@@ -55,8 +64,8 @@ In `config_snakemake_TelomereRepeatLoci_example.yaml`:
 ## Run
 
 ```bash
-snakemake -s /absolute/path/to/Snakefile \
-  --configfile /absolute/path/to/config_snakemake_TelomereRepeatLoci_example.yaml \
+snakemake -s /path/to/TelomereRepeatLoci/Snakefile \
+  --configfile /path/to/TelomereRepeatLoci/config_snakemake_TelomereRepeatLoci_example.yaml \
   --cores 1
 ```
 

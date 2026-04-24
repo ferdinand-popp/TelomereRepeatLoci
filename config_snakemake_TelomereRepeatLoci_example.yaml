@@ -5,7 +5,7 @@
 # Required header columns:
 #   pid    tumor_bam    control_bam
 # For tumor-only runs (samples: [tumor]), only pid and tumor_bam are required.
-bam_files_tsv: /path/to/bam_files.tsv
+bam_files_tsv: <PATH_TO_BAM_FILES_TSV>
 
 
 #------------------------------------------------
