@@ -38,6 +38,7 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
         if missing_columns:
             raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
 
+        # start=2 because row 1 is the TSV header line
         for row_number, row in enumerate(reader, start=2):
             pid = row["pid"].strip()
             if pid == "":
@@ -69,7 +70,7 @@ if config["pids"] == "all":
     if use_explicit_bam_paths:
         pids = sorted(bam_files_by_pid.keys())
     else:
-        pids = [i for i in listdir(config["results_per_pid_dir"]) if not i.startswith('.')]
+        pids = sorted([i for i in listdir(config["results_per_pid_dir"]) if not i.startswith('.')])
 else:
     pids = config["pids"].split(' ')
 
