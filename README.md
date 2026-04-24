@@ -28,13 +28,13 @@ Values must be **tab-separated**.
 Header:
 
 ```text
-pid\tumor_bam\tcontrol_bam
+pid	tumor_bam	control_bam
 ```
 
 Example:
 
 ```text
-PID001\t/npc/path/PID001_tumor.bam\t/npc/path/PID001_control.bam
+PID001	/npc/path/PID001_tumor.bam	/npc/path/PID001_control.bam
 ```
 
 ### Tumor-only mode
@@ -44,13 +44,13 @@ If your config uses only one sample (`samples: [tumor]`), provide:
 Header:
 
 ```text
-pid\ttumor_bam
+pid	tumor_bam
 ```
 
 Example:
 
 ```text
-PID001\t/npc/path/PID001_tumor.bam
+PID001	/npc/path/PID001_tumor.bam
 ```
 
 ## Config notes
