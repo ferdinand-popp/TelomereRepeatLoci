@@ -84,6 +84,8 @@ The workflow is now started directly via Python (no Snakemake/YAML config requir
 uv run src/main.py \
   --tumor-bam /path/to/tumor_input.bam \
   --control-bam /path/to/control_input.bam \
+  --tel-tumor-bam /path/to/tumor_intratelomeric.bam \
+  --tel-control-bam /path/to/control_intratelomeric.bam \
   --blacklist /path/to/blacklist.tsv \
   --tumor-discordant-read-lower-limit 3 \
   --control-discordant-read-upper-limit 0 \
