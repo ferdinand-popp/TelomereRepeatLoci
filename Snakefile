@@ -32,7 +32,7 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
     with open(tsv_file, "r") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         if not reader.fieldnames:
-            raise ValueError("bam_files_tsv is empty: " + tsv_file)
+            raise ValueError("bam_files_tsv has no header or is empty: " + tsv_file)
 
         missing_columns = [col for col in required_columns if col not in reader.fieldnames]
         if missing_columns:
