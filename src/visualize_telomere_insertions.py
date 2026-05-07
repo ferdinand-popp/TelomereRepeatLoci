@@ -23,14 +23,14 @@
 
 
 import os
-import subprocess
 import argparse
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plot
 from matplotlib import gridspec
-import numpy as np
+import pandas as pd
+import pysam
 
 
 argument_parser = argparse.ArgumentParser(
@@ -79,14 +79,14 @@ argument_parser.add_argument(
     metavar="N",
     type=str,
     default="samtools",
-    help="the path to the samtools binary, default is 'samtools'",
+    help="(unused) kept for compatibility",
 )
 argument_parser.add_argument(
     "--tabixbin",
     metavar="N",
     type=str,
     default="tabix",
-    help="the path to the tabix binary, default is 'tabix'",
+    help="(unused) kept for compatibility",
 )
 argument_parser.add_argument(
     "--colored_reads_tumor", type=str, default=None, help="a table with reads to color"
@@ -136,8 +136,8 @@ basepair_colors = {
 
 class ReferenceBuffer(object):
     def __init__(self, filename, chromosome):
-        self.samtools_call = [parsed_arguments.samtoolsbin, "faidx", filename]
-        self.chromosome = chromosome + ";"
+        self.fasta = pysam.FastaFile(filename)
+        self.chromosome = chromosome
         self.offset = 0
         self.sequence = ""
 
@@ -145,38 +145,16 @@ class ReferenceBuffer(object):
         if len(self.sequence) > pos - self.offset >= 0:
             return self.sequence[pos - self.offset]
 
-        else:
-            region = "%s:%i-%i" % (self.chromosome, pos - 1000, pos + 1000)
-            call = self.samtools_call + [region]
-            output = subprocess.check_output(call)
-            self.offset = max(0, pos - 1000)
-            self.sequence = "".join(output.split("\n")[1:]).upper()
-
-            return self.sequence[pos - self.offset]
+        region_start = max(0, pos - 1000)
+        region_end = pos + 1001
+        seq = self.fasta.fetch(self.chromosome, region_start, region_end).upper()
+        self.offset = region_start
+        self.sequence = seq
+        return self.sequence[pos - self.offset]
 
 
 def get_annotations(region):
-    if parsed_arguments.annotations:
-        call = [parsed_arguments.tabixbin, parsed_arguments.annotations, region]
-        output = subprocess.check_output(call)
-
-        if not output:
-            if region[:3] == "chr":
-                call[2] = call[2][3:]
-
-            else:
-                call[2] = "chr" + call[2]
-
-        output = subprocess.check_output(call)
-
-        return [
-            [line.split("\t")[3], int(line.split("\t")[1]), int(line.split("\t")[2])]
-            for line in output.split("\n")
-            if len(line.split("\t")) >= 3
-        ]
-
-    else:
-        return None
+    return None
 
 
 def parse_cigar(cigar, pos):
@@ -438,32 +416,11 @@ def plot_cigars(
 def plot_region(region_chrom, region_center, region_left, region_right, plot_title):
     region_string = "%s:%i-%i" % (region_chrom, region_left, region_right)
 
-    if parsed_arguments.control is None:
-        samtools_reads1 = []
-    else:
-        samtools_call1 = (
-            parsed_arguments.samtoolsbin,
-            "view",
-            "-F",
-            "1024",
-            parsed_arguments.control,
-            region_string,
-        )
-        samtools_output1 = subprocess.check_output(samtools_call1)
-        samtools_output1 = [line.split("\t") for line in samtools_output1.split("\n")]
-        samtools_reads1 = [line for line in samtools_output1 if len(line) > 5]
+    samtools_reads1 = []
+    if parsed_arguments.control is not None:
+        samtools_reads1 = read_bam_region(parsed_arguments.control, region_string)
 
-    samtools_call2 = (
-        parsed_arguments.samtoolsbin,
-        "view",
-        "-F",
-        "1024",
-        parsed_arguments.tumor,
-        region_string,
-    )
-    samtools_output2 = subprocess.check_output(samtools_call2)
-    samtools_output2 = [line.split("\t") for line in samtools_output2.split("\n")]
-    samtools_reads2 = [line for line in samtools_output2 if len(line) > 5]
+    samtools_reads2 = read_bam_region(parsed_arguments.tumor, region_string)
 
     annotations = get_annotations(region_string)
 
@@ -666,7 +623,6 @@ def get_sequence(read, bamfile, clipped_read_dict=None):
     else:
         read_name = read[0]
         flag = int(read[1])
-        pos = read[3]
 
         if flag & 0x40:
             flag_string = "64"
@@ -685,38 +641,11 @@ def get_sequence(read, bamfile, clipped_read_dict=None):
 
         sa_tag = sa_tag[0].split(",")
 
-        pos_primary = sa_tag[0].replace("SA:Z:", "") + ":" + sa_tag[1] + "-" + sa_tag[1]
+        # pos_primary = sa_tag[0].replace("SA:Z:", "") + ":" + sa_tag[1] + "-" + sa_tag[1]
         strand_primary = sa_tag[2]
 
         # get sequence of original alignment
-        samtools_call = (
-            parsed_arguments.samtoolsbin,
-            "view",
-            "-f",
-            flag_string,
-            bamfile,
-            pos_primary,
-        )
-        samtools_output = subprocess.check_output(samtools_call)
-        samtools_output = samtools_output.split("\n")
-        read_original = filter(lambda x: read_name in x, samtools_output)
-
-        read_original = [
-            read for read in read_original if read.split("\t")[3] == sa_tag[1]
-        ]
-        read_original = filter(lambda x: "SA:Z:" in x, read_original)
-        read_original = filter(lambda x: pos in x, read_original)
-        read_original = [
-            read for read in read_original if int(read.split("\t")[1]) < 2000
-        ]
-
-        if len(read_original) != 1:
-            print("multiple primary alignments were found for read " + read_name)
-            print(read_original)
-
-        read_original = read_original[0].split("\t")
-
-        sequence = read_original[9]
+        sequence = read_primary_alignment(bamfile, read_name, sa_tag)
 
         # if read is mapped to different strand than supplementary alignment: get reverse complement
         if strand_supp != strand_primary:
@@ -743,48 +672,39 @@ def getReverseComplement(sequence):
 
 
 def getColoredReads(colored_read_file, chrom):
-    read_name, mate_chr, mate_position, mate_mapq, mate_strand = np.loadtxt(
+    df = pd.read_csv(
         colored_read_file,
+        sep="\t",
         dtype=str,
-        delimiter="\t",
-        comments="",
-        skiprows=1,
-        unpack=True,
+        keep_default_na=False,
+        na_filter=False,
     )
-
-    # mate_mapq = [int(i) for i in mate_mapq]
-    mate_mapq = [int(i) if i != "" else 0 for i in mate_mapq]
-
-    # only keep reads with mapping quality larger than 30 and on chromosome
-    indices1 = [i for i, v in enumerate(mate_mapq) if v > 30]
-    indices2 = [i for i, v in enumerate(mate_chr) if v == chrom]
-    indices = list(set(indices1) & set(indices2))
-    colored_reads = [read_name[i] + "_" + mate_strand[i] for i in indices]
-
-    return colored_reads
+    for col in ["read_name", "mate_chr", "mate_mapq", "mate_strand"]:
+        if col not in df.columns:
+            df[col] = ""
+    df["mate_mapq"] = pd.to_numeric(df["mate_mapq"], errors="coerce").fillna(0)
+    df = df[(df["mate_mapq"] > 30) & (df["mate_chr"] == chrom)]
+    return (df["read_name"] + "_" + df["mate_strand"]).tolist()
 
 
 def getClippedSequences(clipped_read_file):
     # makes a dictionary of clipped reads (read id (read name and read1/2) and sequence of entire read)
-
     try:
-        read_names, read_1_2, sequences = np.loadtxt(
+        df = pd.read_csv(
             clipped_read_file,
+            sep="\t",
             dtype=str,
-            delimiter="\t",
-            comments="",
-            skiprows=1,
-            unpack=True,
-            usecols=(1, 2, 9),
+            keep_default_na=False,
+            na_filter=False,
         )
+    except (FileNotFoundError, PermissionError):
+        return None
 
-        read_ids = [a + "_" + b for a, b in zip(read_names, read_1_2)]
-
-        clipped_reads = dict(zip(read_ids, sequences))
-    except (FileNotFoundError, PermissionError, ValueError, IndexError):
-        clipped_reads = None
-
-    return clipped_reads
+    for col in ["read_name", "read_1_2", "sequence"]:
+        if col not in df.columns:
+            df[col] = ""
+    read_ids = df["read_name"] + "_" + df["read_1_2"]
+    return dict(zip(read_ids.tolist(), df["sequence"].tolist()))
 
 
 #############################################################################################################################
@@ -833,6 +753,51 @@ if parsed_arguments.bed:
             plot.clf()
             plot.cla()
             plot.close()
+
+
+def read_bam_region(bam_path, region_string):
+    chrom, span = region_string.split(":", 1)
+    start_s, end_s = span.split("-", 1)
+    start = max(0, int(start_s))
+    end = int(end_s)
+    reads = []
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        for read in bam.fetch(chrom, start, end):
+            if read.flag & 1024:
+                continue
+            reads.append(
+                [
+                    read.query_name,
+                    str(read.flag),
+                    read.reference_name or "*",
+                    str(read.reference_start),
+                    str(read.mapping_quality),
+                    read.cigarstring or "*",
+                    "*",
+                    "0",
+                    "0",
+                    read.query_sequence or "*",
+                    "*",
+                ]
+            )
+    return reads
+
+
+def read_primary_alignment(bamfile, read_name, sa_tag):
+    chrom = sa_tag[0].replace("SA:Z:", "")
+    start = int(sa_tag[1]) - 1
+    end = int(sa_tag[1])
+    with pysam.AlignmentFile(bamfile, "rb") as bam:
+        reads = [
+            read
+            for read in bam.fetch(chrom, start, end)
+            if read.query_name == read_name
+            and not read.is_supplementary
+            and not read.is_secondary
+        ]
+    if len(reads) != 1:
+        return ""
+    return reads[0].query_sequence or ""
 
 
 # write output file for snakemake

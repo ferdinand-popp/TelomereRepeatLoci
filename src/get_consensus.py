@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import re
 
+import pandas as pd
 import pysam
+
+from pipeline.tables import read_tsv, write_tsv
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
@@ -109,13 +111,11 @@ def main():
     parser.add_argument("--reference", default="")
     args = parser.parse_args()
 
-    with open(args.candidate_regions_file, newline="") as handle:
-        candidate_reader = csv.DictReader(handle, delimiter="\t")
-        candidate_rows = list(candidate_reader)
-        candidate_fields = candidate_reader.fieldnames or []
+    candidate_df = read_tsv(args.candidate_regions_file)
+    candidate_rows = candidate_df.to_dict("records")
+    candidate_fields = list(candidate_df.columns)
 
-    with open(args.clipped_read_file, newline="") as handle:
-        clipped_rows = list(csv.DictReader(handle, delimiter="\t"))
+    clipped_rows = read_tsv(args.clipped_read_file).to_dict("records")
 
     clipped_by_window = {}
     for row in clipped_rows:
@@ -189,10 +189,8 @@ def main():
     if fasta is not None:
         fasta.close()
 
-    with open(args.outfile, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=out_fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(candidate_rows)
+    output_df = pd.DataFrame(candidate_rows)
+    write_tsv(output_df, args.outfile, out_fields)
 
 
 if __name__ == "__main__":

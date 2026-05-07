@@ -115,7 +115,9 @@ Optional plotting can be enabled with:
 
 - The scripts in `src/` are orchestrated by `main.py`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
-- The input TelomereHunter output directory must contain exactly one `*_filtered_intratelomeric.bam` file.
+- `--tel-tumor-bam` and `--tel-control-bam` can be any BAM you want to screen (not limited to TelomereHunter outputs).
+- Discordant read screening uses overlapping 1 kb windows with a 500 bp step.
+- Visualization uses pysam directly; the `--samtoolsbin` flag is kept for compatibility.
 - pre-commit hooks use with ruff for dev
 - run tests with `uv run pytest -v`
 - `uv run ruff check --fix .`
