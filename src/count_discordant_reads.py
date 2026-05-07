@@ -1,70 +1,122 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import os
-from collections import Counter
+
+import pandas as pd
+
+from pipeline.tables import WINDOWS_COLUMNS, read_tsv, write_tsv
 
 MIN_MATE_MAPQ = 30
+WINDOW_SIZE = 1000
+WINDOW_STEP = 500
 
 
-def read_discordant_counts(path, sample):
-    counts = Counter()
+def load_discordant(path):
     if not path or path == "NULL" or not os.path.exists(path):
-        return counts
+        return pd.DataFrame(
+            columns=[
+                "read_name",
+                "mate_chr",
+                "mate_position",
+                "mate_mapq",
+                "mate_strand",
+            ]
+        )
+    df = read_tsv(path)
+    for col in ["read_name", "mate_chr", "mate_position", "mate_mapq", "mate_strand"]:
+        if col not in df.columns:
+            df[col] = ""
+    df["mate_mapq"] = pd.to_numeric(df["mate_mapq"], errors="coerce").fillna(0)
+    df["mate_position"] = pd.to_numeric(df["mate_position"], errors="coerce")
+    df = df[df["mate_mapq"] > MIN_MATE_MAPQ]
+    df = df[df["mate_position"].notna()]
+    return df
 
-    with open(path, newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        for row in reader:
-            try:
-                if float(row.get("mate_mapq", 0)) <= MIN_MATE_MAPQ:
+
+def build_windows(df):
+    if df.empty:
+        return pd.DataFrame(
+            columns=["window", "chrom", "chromStart", "chromEnd", "strand"]
+        )
+
+    windows = []
+    for (chrom, strand), group in df.groupby(["mate_chr", "mate_strand"], dropna=False):
+        positions = group["mate_position"].astype(int).tolist()
+        for pos in positions:
+            start = (pos // WINDOW_STEP) * WINDOW_STEP
+            for offset in [0, -WINDOW_STEP]:
+                win_start = start + offset
+                if win_start < 0:
                     continue
-            except (TypeError, ValueError):
-                continue
-
-            chrom = row.get("mate_chr", "")
-            strand = row.get("mate_strand", "")
-            try:
-                pos = int(float(row.get("mate_position", 0)))
-            except (TypeError, ValueError):
-                continue
-
-            pos_1kb = (pos // 1000) * 1000
-            window = f"{chrom}_{pos_1kb}_{strand}"
-            counts[window] += 1
-
-    return counts
+                win_end = win_start + WINDOW_SIZE
+                if win_start <= pos < win_end:
+                    windows.append(
+                        {
+                            "window": f"{chrom}_{win_start}_{strand}",
+                            "chrom": chrom,
+                            "chromStart": win_start,
+                            "chromEnd": win_end,
+                            "strand": strand,
+                        }
+                    )
+    return pd.DataFrame(windows).drop_duplicates()
 
 
-def parse_window(window):
-    chrom, start, strand = window.rsplit("_", 2)
-    chrom_start = int(start)
-    chrom_end = chrom_start + 1000
-    return chrom, chrom_start, chrom_end, strand
+def count_windows(df, windows, name_column):
+    if windows.empty:
+        windows = windows.copy()
+        windows["count"] = 0
+        windows[name_column] = [set() for _ in range(len(windows))]
+        return windows
+    df = df.copy()
+    df["mate_position"] = df["mate_position"].astype(int)
+
+    windows = windows.copy()
+    windows["count"] = 0
+    windows[name_column] = [set() for _ in range(len(windows))]
+    for idx, row in windows.iterrows():
+        chrom = row["chrom"]
+        strand = row["strand"]
+        start = row["chromStart"]
+        end = row["chromEnd"]
+        mask = (
+            (df["mate_chr"] == chrom)
+            & (df["mate_strand"] == strand)
+            & (df["mate_position"] >= start)
+            & (df["mate_position"] < end)
+        )
+        read_names = set(df.loc[mask, "read_name"].astype(str).tolist())
+        windows.at[idx, "count"] = int(len(read_names))
+        windows.at[idx, name_column] = read_names
+    return windows
 
 
-def merge_adjacent(rows):
-    rows.sort(key=lambda r: (r["chrom"], r["strand"], r["chromStart"]))
-
+def merge_overlapping(rows):
+    rows = rows.sort_values(["chrom", "strand", "chromStart"]).to_dict("records")
     merged = []
     for row in rows:
         if not merged:
             merged.append(dict(row))
             continue
-
         prev = merged[-1]
-        if (
-            prev["chrom"] == row["chrom"]
-            and prev["strand"] == row["strand"]
-            and prev["chromEnd"] == row["chromStart"]
-            and prev["tumor_discordant_read_count"] != 0
+        overlaps = prev["chrom"] == row["chrom"] and prev["strand"] == row["strand"]
+        overlaps = overlaps and prev["chromEnd"] >= row["chromStart"]
+        tumor_counts = (
+            prev["tumor_discordant_read_count"] != 0
             and row["tumor_discordant_read_count"] != 0
-        ):
-            prev["chromEnd"] = row["chromEnd"]
-            prev["tumor_discordant_read_count"] += row["tumor_discordant_read_count"]
-            prev["control_discordant_read_count"] += row[
-                "control_discordant_read_count"
-            ]
+        )
+        if overlaps and tumor_counts:
+            prev["chromEnd"] = max(prev["chromEnd"], row["chromEnd"])
+            prev_tumor = prev.get("_tumor_read_names", set())
+            row_tumor = row.get("_tumor_read_names", set())
+            prev_control = prev.get("_control_read_names", set())
+            row_control = row.get("_control_read_names", set())
+
+            prev["_tumor_read_names"] = prev_tumor | row_tumor
+            prev["_control_read_names"] = prev_control | row_control
+            prev["tumor_discordant_read_count"] = len(prev["_tumor_read_names"])
+            prev["control_discordant_read_count"] = len(prev["_control_read_names"])
             if prev["blacklisted"] == "yes" or row["blacklisted"] == "yes":
                 prev["blacklisted"] = "yes"
             elif prev["blacklisted"] == "no" or row["blacklisted"] == "no":
@@ -74,8 +126,7 @@ def merge_adjacent(rows):
             prev["window"] = f"{prev['chrom']}_{prev['chromStart']}_{prev['strand']}"
         else:
             merged.append(dict(row))
-
-    return merged
+    return pd.DataFrame(merged)
 
 
 def main():
@@ -87,59 +138,63 @@ def main():
     parser.add_argument("-f", "--function_file", required=False)
     args = parser.parse_args()
 
-    tumor_counts = read_discordant_counts(args.discordantReadFileTumor, "tumor")
-    control_counts = read_discordant_counts(args.discordantReadFileControl, "control")
+    tumor_df = load_discordant(args.discordantReadFileTumor)
+    control_df = load_discordant(args.discordantReadFileControl)
 
-    windows = sorted(set(tumor_counts) | set(control_counts))
     pid = os.path.basename(args.outFile).replace(
         "_discordant_reads_1_kb_windows.tsv", ""
     )
 
-    blacklist = set()
+    windows = build_windows(pd.concat([tumor_df, control_df], ignore_index=True))
+    tumor_counts = count_windows(tumor_df, windows, "_tumor_read_names").rename(
+        columns={"count": "tumor_discordant_read_count"}
+    )
+    control_counts = count_windows(control_df, windows, "_control_read_names").rename(
+        columns={"count": "control_discordant_read_count"}
+    )
+
+    merged_counts = windows.merge(
+        tumor_counts[["window", "tumor_discordant_read_count", "_tumor_read_names"]],
+        on="window",
+        how="left",
+    ).merge(
+        control_counts[
+            ["window", "control_discordant_read_count", "_control_read_names"]
+        ],
+        on="window",
+        how="left",
+    )
+    merged_counts["tumor_discordant_read_count"] = (
+        merged_counts["tumor_discordant_read_count"].fillna(0).astype(int)
+    )
+    merged_counts["control_discordant_read_count"] = (
+        merged_counts["control_discordant_read_count"].fillna(0).astype(int)
+    )
+    merged_counts["_tumor_read_names"] = merged_counts["_tumor_read_names"].apply(
+        lambda x: x if isinstance(x, set) else set()
+    )
+    merged_counts["_control_read_names"] = merged_counts["_control_read_names"].apply(
+        lambda x: x if isinstance(x, set) else set()
+    )
+    merged_counts["PID"] = pid
+
+    merged_counts["blacklisted"] = ""
     if args.blacklist_file and os.path.exists(args.blacklist_file):
-        with open(args.blacklist_file, newline="") as handle:
-            reader = csv.DictReader(handle, delimiter="\t")
-            for row in reader:
-                if row.get("window"):
-                    blacklist.add(row["window"])
+        blacklist_df = read_tsv(args.blacklist_file)
+        if "window" in blacklist_df.columns:
+            blacklist = set(blacklist_df["window"].tolist())
+            merged_counts["blacklisted"] = merged_counts["window"].apply(
+                lambda w: "yes" if w in blacklist else "no"
+            )
 
-    rows = []
-    for window in windows:
-        chrom, chrom_start, chrom_end, strand = parse_window(window)
-        rows.append(
-            {
-                "PID": pid,
-                "window": window,
-                "chrom": chrom,
-                "chromStart": chrom_start,
-                "chromEnd": chrom_end,
-                "strand": strand,
-                "tumor_discordant_read_count": int(tumor_counts.get(window, 0)),
-                "control_discordant_read_count": int(control_counts.get(window, 0)),
-                "blacklisted": "yes"
-                if window in blacklist
-                else ("no" if blacklist else ""),
-            }
-        )
-
-    rows = merge_adjacent(rows)
-
-    fieldnames = [
-        "PID",
-        "window",
-        "chrom",
-        "chromStart",
-        "chromEnd",
-        "strand",
-        "tumor_discordant_read_count",
-        "control_discordant_read_count",
-        "blacklisted",
-    ]
-
-    with open(args.outFile, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
+    merged_counts = merge_overlapping(merged_counts)
+    if "_tumor_read_names" in merged_counts.columns:
+        merged_counts = merged_counts.drop(columns=["_tumor_read_names"])
+    if "_control_read_names" in merged_counts.columns:
+        merged_counts = merged_counts.drop(columns=["_control_read_names"])
+    if not merged_counts.empty:
+        merged_counts = merged_counts.sort_values(["chrom", "chromStart", "strand"])
+    write_tsv(merged_counts, args.outFile, WINDOWS_COLUMNS)
 
 
 if __name__ == "__main__":

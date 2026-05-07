@@ -18,12 +18,12 @@ def parse_args():
         "--tel-tumor-bam",
         required=True,
         default="",
-        help="Tumor BAM file with filtered tel reads.",
+        help="Tumor BAM file to use for discordant-read screening.",
     )
     parser.add_argument(
         "--tel-control-bam",
         default="",
-        help="Control BAM file with filtered tel reads.",
+        help="Control BAM file to use for discordant-read screening.",
     )
     parser.add_argument(
         "--output-dir",
@@ -118,14 +118,14 @@ def process_sample(args, scripts_dir):
     if not tumor_bam.exists():
         raise FileNotFoundError(f"Missing tumor BAM: {tumor_bam}")
 
-    # Derive the tumor TelomereHunter directory and PID directly from the BAM path.
-    # Expected layout: <telomerehunter-dir>/tumor_TelomerCnt_<PID>/<bam-file>
-    tumor_th_dir = Path(args.tel_tumor_bam).parent
-    pid = extract_pid_from_folder(tumor_th_dir)
-    print(f"Detected tumor TelomereHunter dir : {tumor_th_dir}")
-    print(f"Detected PID                      : {pid}")
+    tumor_filtered_bam = Path(args.tel_tumor_bam)
+    if not tumor_filtered_bam.exists():
+        raise FileNotFoundError(f"Missing telomeric tumor BAM: {tumor_filtered_bam}")
 
-    tumor_filtered_bam = get_filtered_bam(tumor_th_dir)
+    tumor_th_dir = tumor_filtered_bam.parent
+    pid = extract_pid_from_folder(tumor_th_dir)
+    print(f"Detected telomere BAM dir         : {tumor_th_dir}")
+    print(f"Detected PID                      : {pid}")
 
     use_control = bool(args.control_bam)
     control_bam = None
@@ -136,19 +136,21 @@ def process_sample(args, scripts_dir):
         if not control_bam.exists():
             raise FileNotFoundError(f"Missing control BAM: {control_bam}")
 
-        # Derive the control TelomereHunter directory from the control BAM path.
-        # Expected layout: <telomerehunter-dir>/control_TelomerCnt_<PID>/<bam-file>
-        control_th_dir = Path(args.tel_control_bam).parent
+        control_filtered_bam = Path(args.tel_control_bam)
+        if not control_filtered_bam.exists():
+            raise FileNotFoundError(
+                f"Missing telomeric control BAM: {control_filtered_bam}"
+            )
+
+        control_th_dir = control_filtered_bam.parent
         control_pid = extract_pid_from_folder(control_th_dir)
-        print(f"Detected control TelomereHunter dir: {control_th_dir}")
+        print(f"Detected control telomere BAM dir : {control_th_dir}")
 
         if control_pid != pid:
             raise ValueError(
-                "Tumor/control PID mismatch from TelomereHunter folder names: "
+                "Tumor/control PID mismatch from folder names: "
                 f"tumor PID='{pid}', control PID='{control_pid}'."
             )
-
-        control_filtered_bam = get_filtered_bam(control_th_dir)
 
     output_dir = get_output_dir(args, tumor_th_dir)
 

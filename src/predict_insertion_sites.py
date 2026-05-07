@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import statistics
 from collections import defaultdict
+
+import pandas as pd
+
+from pipeline.tables import read_tsv, write_tsv
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
@@ -46,16 +49,12 @@ def main():
     parser.add_argument("outfile")
     args = parser.parse_args()
 
-    with open(args.candidate_region_file, newline="") as handle:
-        candidate_reader = csv.DictReader(handle, delimiter="\t")
-        candidate_rows = list(candidate_reader)
-        candidate_fields = candidate_reader.fieldnames or []
+    candidate_df = read_tsv(args.candidate_region_file)
+    candidate_rows = candidate_df.to_dict("records")
+    candidate_fields = list(candidate_df.columns)
 
-    with open(args.clipped_reads_file, newline="") as handle:
-        clipped_rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    with open(args.discordant_read_file, newline="") as handle:
-        discordant_rows = list(csv.DictReader(handle, delimiter="\t"))
+    clipped_rows = read_tsv(args.clipped_reads_file).to_dict("records")
+    discordant_rows = read_tsv(args.discordant_read_file).to_dict("records")
 
     clipped_by_window = defaultdict(list)
     for row in clipped_rows:
@@ -164,10 +163,8 @@ def main():
         elif sum_c > sum_t:
             region["repeat_forward"] = "CCCTAA"
 
-    with open(args.outfile, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=output_fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(candidate_rows)
+    output_df = pd.DataFrame(candidate_rows)
+    write_tsv(output_df, args.outfile, output_fields)
 
 
 if __name__ == "__main__":

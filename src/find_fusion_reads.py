@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import re
 
+import pandas as pd
 import pysam
+
+from pipeline.tables import FUSION_READS_COLUMNS, read_tsv, write_tsv
 
 
 TELOMERE_PATTERN = re.compile(r"TTAGGG|CCCTAA")
@@ -109,8 +111,7 @@ def main():
     parser.add_argument("outfile")
     args = parser.parse_args()
 
-    with open(args.candidate_region_file, newline="") as handle:
-        candidate_regions = list(csv.DictReader(handle, delimiter="\t"))
+    candidate_regions = read_tsv(args.candidate_region_file).to_dict("records")
 
     bam = pysam.AlignmentFile(args.bamfile, "rb")
     out_rows = []
@@ -207,28 +208,8 @@ def main():
 
     bam.close()
 
-    fieldnames = [
-        "window",
-        "read_name",
-        "read_1_2",
-        "start",
-        "end",
-        "cigar",
-        "chr_primary_align",
-        "coord_primary_align",
-        "strand_primary_align",
-        "sequence",
-        "clipped_sequence",
-        "part_telomere",
-        "TTAGGG_count",
-        "CCCTAA_count",
-        "expected_pos_fusion",
-    ]
-
-    with open(args.outfile, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(out_rows)
+    df = pd.DataFrame(out_rows)
+    write_tsv(df, args.outfile, FUSION_READS_COLUMNS)
 
 
 if __name__ == "__main__":

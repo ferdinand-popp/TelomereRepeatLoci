@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
+
+import pandas as pd
+
+from pipeline.tables import BED_COLUMNS, read_tsv, write_tsv
 
 
 def build_bed_rows(candidate_rows, pid, flank):
@@ -33,11 +36,8 @@ def build_bed_rows(candidate_rows, pid, flank):
 
 
 def write_bed(path, rows):
-    fieldnames = ["#chrom", "chromStart", "chromEnd", "pos", "pid"]
-    with open(path, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
+    df = pd.DataFrame(rows)
+    write_tsv(df, path, BED_COLUMNS)
 
 
 def main():
@@ -48,8 +48,7 @@ def main():
     parser.add_argument("pid")
     args = parser.parse_args()
 
-    with open(args.candidate_region_file, newline="") as handle:
-        candidate_rows = list(csv.DictReader(handle, delimiter="\t"))
+    candidate_rows = read_tsv(args.candidate_region_file).to_dict("records")
 
     write_bed(args.outfile1, build_bed_rows(candidate_rows, args.pid, 500))
     write_bed(args.outfile2, build_bed_rows(candidate_rows, args.pid, 100))

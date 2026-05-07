@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
+
+import pandas as pd
+
+from pipeline.tables import read_tsv, write_tsv
 
 
 def main():
@@ -13,30 +16,30 @@ def main():
     parser.add_argument("consider_blacklist")
     args = parser.parse_args()
 
-    with open(args.window_file, newline="") as in_handle:
-        reader = csv.DictReader(in_handle, delimiter="\t")
-        rows = []
-        for row in reader:
-            try:
-                tumor = float(row.get("tumor_discordant_read_count", 0))
-                control = float(row.get("control_discordant_read_count", 0))
-            except (TypeError, ValueError):
-                continue
+    df = read_tsv(args.window_file)
+    if "tumor_discordant_read_count" not in df.columns:
+        df["tumor_discordant_read_count"] = "0"
+    if "control_discordant_read_count" not in df.columns:
+        df["control_discordant_read_count"] = "0"
 
-            if tumor < args.tumor_discordant_read_lower_limit:
-                continue
-            if control > args.control_discordant_read_upper_limit:
-                continue
-            if args.consider_blacklist == "True" and row.get("blacklisted") == "yes":
-                continue
-            rows.append(row)
+    df["tumor_discordant_read_count"] = pd.to_numeric(
+        df["tumor_discordant_read_count"], errors="coerce"
+    ).fillna(0)
+    df["control_discordant_read_count"] = pd.to_numeric(
+        df["control_discordant_read_count"], errors="coerce"
+    ).fillna(0)
 
-        fieldnames = reader.fieldnames or []
+    filtered = df[
+        (df["tumor_discordant_read_count"] >= args.tumor_discordant_read_lower_limit)
+        & (
+            df["control_discordant_read_count"]
+            <= args.control_discordant_read_upper_limit
+        )
+    ]
+    if args.consider_blacklist == "True" and "blacklisted" in filtered.columns:
+        filtered = filtered[filtered["blacklisted"] != "yes"]
 
-    with open(args.candidate_region_file, "w", newline="") as out_handle:
-        writer = csv.DictWriter(out_handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
+    write_tsv(filtered, args.candidate_region_file, list(df.columns))
 
 
 if __name__ == "__main__":

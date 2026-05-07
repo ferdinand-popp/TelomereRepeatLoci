@@ -2,30 +2,33 @@
 # Author: Lina Sieverling (extended debug/fix version)
 
 import sys
-import getopt
 import os
-import numpy
+import argparse
+import pandas as pd
 import pysam
 
 telomere_insertion_table_file = None
 alignment_bam_file = None
 outfile_path = None
 
-myopts, args = getopt.getopt(sys.argv[1:], "i:b:o:")
-for opt, arg in myopts:
-    if opt == "-i":
-        telomere_insertion_table_file = arg
-    elif opt == "-b":
-        alignment_bam_file = arg
-    elif opt == "-o":
-        outfile_path = arg
 
-if not (telomere_insertion_table_file and alignment_bam_file and outfile_path):
-    print(
-        f"Usage: {sys.argv[0]} -i input_table -b bam_file -o output_file",
-        file=sys.stderr,
+def _parse_args(argv):
+    p = argparse.ArgumentParser(
+        prog=os.path.basename(argv[0]),
+        description="Add mate MAPQ/strand info for reads listed in a telomere insertion table.",
     )
-    sys.exit(2)
+    p.add_argument(
+        "-i", "--input-table", required=True, dest="telomere_insertion_table_file"
+    )
+    p.add_argument("-b", "--bam", required=True, dest="alignment_bam_file")
+    p.add_argument("-o", "--output", required=True, dest="outfile_path")
+    return p.parse_args(argv[1:])
+
+
+args = _parse_args(sys.argv)
+telomere_insertion_table_file = args.telomere_insertion_table_file
+alignment_bam_file = args.alignment_bam_file
+outfile_path = args.outfile_path
 
 chromosome_list = [str(i) for i in range(1, 22 + 1)] + ["X", "Y"]
 WINDOW_BP = 5000
@@ -57,21 +60,41 @@ def resolve_contig(chrom: str, contigs_set):
     return None
 
 
-telomere_insertion_table = numpy.genfromtxt(
-    telomere_insertion_table_file,
-    skip_header=1,
-    delimiter="\t",
-    dtype=str,
-    encoding="utf-8",
-    comments=None,
-)
+# Replace numpy.genfromtxt() loading with pandas
+try:
+    df = pd.read_csv(
+        telomere_insertion_table_file,
+        sep="\t",
+        header=0,
+        dtype=str,
+        keep_default_na=False,
+        na_filter=False,
+    )
+except Exception as e:
+    print(f"[ERROR] Could not read input table: {e}", file=sys.stderr)
+    sys.exit(1)
 
-if telomere_insertion_table.size == 0:
-    rows = numpy.empty((0, 0), dtype=str)
-elif telomere_insertion_table.ndim == 1:
-    rows = numpy.atleast_2d(telomere_insertion_table)
-else:
-    rows = telomere_insertion_table
+# ---- pandas best-practice: validate + normalize once, then iterate efficiently ----
+required = {"read_name", "mate_chr", "mate_position"}
+missing = required - set(df.columns)
+if missing:
+    print(
+        f"[ERROR] Input table missing required columns: {', '.join(sorted(missing))}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# normalize/derive columns used by the BAM lookup
+df = df.copy()
+df["read_name"] = df["read_name"].astype(str).str.strip()
+df["mate_chr"] = df["mate_chr"].astype(str).str.strip()
+df["mate_position"] = df["mate_position"].astype(str).str.strip()
+
+df["_read_name_norm"] = df["read_name"].map(norm_read_name)
+df["_chrom_base"] = df["mate_chr"].str.replace(r"^chr", "", regex=True)
+
+# parse position once; keep NaN for bad values
+df["_pos0"] = pd.to_numeric(df["mate_position"], errors="coerce").astype("Int64")
 
 # --- ensure BAM can be opened ---
 try:
@@ -111,125 +134,186 @@ if not has_idx:
 # main processing
 try:
     with pysam.AlignmentFile(bam_for_processing, "rb") as bam:
-        if bam.closed:
-            raise OSError(f"Failed to open BAM file: {bam_for_processing}")
-
-        if not bam.has_index():
-            raise OSError(
-                f"BAM index still unavailable after sort/index attempt: {bam_for_processing}"
-            )
-
         contigs = set(bam.references)
 
-        output_lines = [
-            "\t".join(
-                [
-                    "read_name",
-                    "mate_chr",
-                    "mate_position",
-                    "mate_mapq",
-                    "mate_strand",
-                    "status",
-                ]
+        def emit(
+            outfile, read_name_raw, mate_chr, mate_pos, mate_mapq, mate_strand, status
+        ):
+            outfile.write(
+                "\t".join(
+                    [
+                        str(read_name_raw),
+                        str(mate_chr or ""),
+                        str(mate_pos or ""),
+                        str(mate_mapq or ""),
+                        str(mate_strand or ""),
+                        str(status),
+                    ]
+                )
+                + "\n"
             )
-        ]
 
-        for read in rows:
-            if len(read) < 3:
-                continue
-
-            read_name_raw = str(read[0]).strip()
-            read_name_norm = norm_read_name(read_name_raw)
-            chromosome_in = str(read[1]).strip()
-            position = str(read[2]).strip()
-
-            mapq = ""
-            strand = ""
-            status = "read_not_found"
-
-            # keep original behavior of accepting canonical autosomes+sex chr from table,
-            # but allow both chr and non-chr prefixed forms
-            chrom_base = (
-                chromosome_in[3:] if chromosome_in.startswith("chr") else chromosome_in
+        with open(outfile_path, "w", encoding="utf-8") as outfile:
+            outfile.write(
+                "\t".join(
+                    [
+                        "read_name",
+                        "mate_chr",
+                        "mate_position",
+                        "mate_mapq",
+                        "mate_strand",
+                        "status",
+                    ]
+                )
+                + "\n"
             )
-            if chrom_base not in chromosome_list:
-                status = "chr_not_allowed"
-                output_lines.append(
-                    "\t".join(
-                        [read_name_raw, chromosome_in, position, mapq, strand, status]
-                    )
-                )
-                continue
 
-            chrom_resolved = resolve_contig(chromosome_in, contigs)
-            if chrom_resolved is None:
-                status = "chr_not_in_bam"
-                output_lines.append(
-                    "\t".join(
-                        [read_name_raw, chromosome_in, position, mapq, strand, status]
-                    )
-                )
-                continue
+            if df.empty:
+                pass
+            else:
+                for r in df.to_dict("records"):
+                    read_name_raw = r.get("read_name", "")
+                    read_name_norm = r.get("_read_name_norm", "")
+                    chromosome_in = r.get("mate_chr", "")
+                    chrom_base = r.get("_chrom_base", "")
+                    pos0 = r.get("_pos0")
 
-            try:
-                pos1 = int(position)  # expected 1-based
-            except ValueError:
-                status = "bad_pos"
-                output_lines.append(
-                    "\t".join(
-                        [read_name_raw, chromosome_in, position, mapq, strand, status]
-                    )
-                )
-                continue
-
-            contig_len = bam.get_reference_length(chrom_resolved)
-            start0 = max(0, pos1 - 1 - WINDOW_BP)
-            end0 = min(contig_len, pos1 + WINDOW_BP)
-
-            found = False
-            try:
-                # 1) windowed fetch
-                for aln in bam.fetch(chrom_resolved, start0, end0):
-                    if aln.is_secondary or aln.is_supplementary:
-                        continue
-                    if norm_read_name(aln.query_name) != read_name_norm:
-                        continue
-                    mapq = str(aln.mapping_quality)
-                    strand = "-" if aln.is_reverse else "+"
-                    status = "ok_window"
-                    found = True
-                    break
-
-                # 2) optional whole-contig fallback
-                if (not found) and FALLBACK_CONTIG_SCAN:
-                    for aln in bam.fetch(chrom_resolved):
-                        if aln.is_secondary or aln.is_supplementary:
-                            continue
-                        if norm_read_name(aln.query_name) != read_name_norm:
-                            continue
-                        mapq = str(aln.mapping_quality)
-                        strand = "-" if aln.is_reverse else "+"
-                        status = "ok_fallback_contig"
-                        found = True
-                        break
-
-                if not found:
+                    mate_chr = ""
+                    mate_pos = ""
+                    mate_mapq = ""
+                    mate_strand = ""
                     status = "read_not_found"
 
-            except (ValueError, OSError):
-                mapq = ""
-                strand = ""
-                status = "fetch_error"
+                    if chrom_base not in chromosome_list:
+                        emit(
+                            outfile,
+                            read_name_raw,
+                            mate_chr,
+                            mate_pos,
+                            mate_mapq,
+                            mate_strand,
+                            "chr_not_allowed",
+                        )
+                        continue
 
-            output_lines.append(
-                "\t".join(
-                    [read_name_raw, chromosome_in, position, mapq, strand, status]
-                )
-            )
+                    chrom_resolved = resolve_contig(chromosome_in, contigs)
+                    if chrom_resolved is None:
+                        emit(
+                            outfile,
+                            read_name_raw,
+                            mate_chr,
+                            mate_pos,
+                            mate_mapq,
+                            mate_strand,
+                            "chr_not_in_bam",
+                        )
+                        continue
+
+                    if pd.isna(pos0):
+                        emit(
+                            outfile,
+                            read_name_raw,
+                            mate_chr,
+                            mate_pos,
+                            mate_mapq,
+                            mate_strand,
+                            "bad_pos",
+                        )
+                        continue
+
+                    contig_len = bam.get_reference_length(chrom_resolved)
+                    start0 = max(0, int(pos0) - WINDOW_BP)
+                    end0 = min(contig_len, int(pos0) + WINDOW_BP)
+
+                    found = False
+                    try:
+                        # 1) windowed fetch
+                        for aln in bam.fetch(chrom_resolved, start0, end0):
+                            if aln.is_secondary or aln.is_supplementary:
+                                continue
+                            if norm_read_name(aln.query_name) != read_name_norm:
+                                continue
+
+                            mate_mapq = str(aln.mapping_quality)
+                            mate_strand = "-" if aln.is_reverse else "+"
+
+                            if aln.mate_is_unmapped:
+                                mate_chr = ""
+                                mate_pos = ""
+                                status = "ok_window_mate_unmapped"
+                            else:
+                                try:
+                                    mate_chr = bam.get_reference_name(
+                                        aln.next_reference_id
+                                    )
+                                except Exception:
+                                    mate_chr = ""
+                                # mate_position now emitted as 0-based to match input convention
+                                mate_pos = (
+                                    str(aln.next_reference_start)
+                                    if aln.next_reference_start is not None
+                                    and aln.next_reference_start >= 0
+                                    else ""
+                                )
+                                status = "ok_window"
+
+                            found = True
+                            break
+
+                        # 2) optional whole-contig fallback
+                        if (not found) and FALLBACK_CONTIG_SCAN:
+                            for aln in bam.fetch(chrom_resolved):
+                                if aln.is_secondary or aln.is_supplementary:
+                                    continue
+                                if norm_read_name(aln.query_name) != read_name_norm:
+                                    continue
+
+                                mate_mapq = str(aln.mapping_quality)
+                                mate_strand = "-" if aln.is_reverse else "+"
+
+                                if aln.mate_is_unmapped:
+                                    mate_chr = ""
+                                    mate_pos = ""
+                                    status = "ok_fallback_contig_mate_unmapped"
+                                else:
+                                    try:
+                                        mate_chr = bam.get_reference_name(
+                                            aln.next_reference_id
+                                        )
+                                    except Exception:
+                                        mate_chr = ""
+                                    # mate_position now emitted as 0-based to match input convention
+                                    mate_pos = (
+                                        str(aln.next_reference_start)
+                                        if aln.next_reference_start is not None
+                                        and aln.next_reference_start >= 0
+                                        else ""
+                                    )
+                                    status = "ok_fallback_contig"
+
+                                found = True
+                                break
+
+                        if not found:
+                            status = "read_not_found"
+
+                    except (ValueError, OSError):
+                        mate_chr = ""
+                        mate_pos = ""
+                        mate_mapq = ""
+                        mate_strand = ""
+                        status = "fetch_error"
+
+                    emit(
+                        outfile,
+                        read_name_raw,
+                        mate_chr,
+                        mate_pos,
+                        mate_mapq,
+                        mate_strand,
+                        status,
+                    )
 
 except OSError as e:
     print(f"[ERROR] Could not open/read BAM during processing: {e}", file=sys.stderr)
     sys.exit(1)
-
-with open(outfile_path, "w", encoding="utf-8") as outfile:
-    outfile.write("\n".join(output_lines))
