@@ -92,43 +92,6 @@ def count_windows(df, windows, name_column):
     return windows
 
 
-def merge_overlapping(rows):
-    rows = rows.sort_values(["chrom", "strand", "chromStart"]).to_dict("records")
-    merged = []
-    for row in rows:
-        if not merged:
-            merged.append(dict(row))
-            continue
-        prev = merged[-1]
-        overlaps = prev["chrom"] == row["chrom"] and prev["strand"] == row["strand"]
-        overlaps = overlaps and prev["chromEnd"] >= row["chromStart"]
-        tumor_counts = (
-            prev["tumor_discordant_read_count"] != 0
-            and row["tumor_discordant_read_count"] != 0
-        )
-        if overlaps and tumor_counts:
-            prev["chromEnd"] = max(prev["chromEnd"], row["chromEnd"])
-            prev_tumor = prev.get("_tumor_read_names", set())
-            row_tumor = row.get("_tumor_read_names", set())
-            prev_control = prev.get("_control_read_names", set())
-            row_control = row.get("_control_read_names", set())
-
-            prev["_tumor_read_names"] = prev_tumor | row_tumor
-            prev["_control_read_names"] = prev_control | row_control
-            prev["tumor_discordant_read_count"] = len(prev["_tumor_read_names"])
-            prev["control_discordant_read_count"] = len(prev["_control_read_names"])
-            if prev["blacklisted"] == "yes" or row["blacklisted"] == "yes":
-                prev["blacklisted"] = "yes"
-            elif prev["blacklisted"] == "no" or row["blacklisted"] == "no":
-                prev["blacklisted"] = "no"
-            else:
-                prev["blacklisted"] = ""
-            prev["window"] = f"{prev['chrom']}_{prev['chromStart']}_{prev['strand']}"
-        else:
-            merged.append(dict(row))
-    return pd.DataFrame(merged)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--discordantReadFileTumor", required=True)
@@ -138,10 +101,25 @@ def main():
     parser.add_argument("-f", "--function_file", required=False)
     args = parser.parse_args()
 
-    tumor_df = load_discordant(args.discordantReadFileTumor)
-    control_df = load_discordant(args.discordantReadFileControl)
+    df = compute_windows(
+        args.discordantReadFileTumor,
+        args.discordantReadFileControl,
+        args.blacklist_file,
+        args.outFile,
+    )
+    write_tsv(df, args.outFile, WINDOWS_COLUMNS)
 
-    pid = os.path.basename(args.outFile).replace(
+
+def compute_windows(
+    tumor_path: str,
+    control_path: str,
+    blacklist_path: str,
+    output_path: str,
+) -> pd.DataFrame:
+    tumor_df = load_discordant(tumor_path)
+    control_df = load_discordant(control_path)
+
+    pid = os.path.basename(output_path).replace(
         "_discordant_reads_1_kb_windows.tsv", ""
     )
 
@@ -179,22 +157,21 @@ def main():
     merged_counts["PID"] = pid
 
     merged_counts["blacklisted"] = ""
-    if args.blacklist_file and os.path.exists(args.blacklist_file):
-        blacklist_df = read_tsv(args.blacklist_file)
+    if blacklist_path and os.path.exists(blacklist_path):
+        blacklist_df = read_tsv(blacklist_path)
         if "window" in blacklist_df.columns:
             blacklist = set(blacklist_df["window"].tolist())
             merged_counts["blacklisted"] = merged_counts["window"].apply(
                 lambda w: "yes" if w in blacklist else "no"
             )
 
-    merged_counts = merge_overlapping(merged_counts)
     if "_tumor_read_names" in merged_counts.columns:
         merged_counts = merged_counts.drop(columns=["_tumor_read_names"])
     if "_control_read_names" in merged_counts.columns:
         merged_counts = merged_counts.drop(columns=["_control_read_names"])
     if not merged_counts.empty:
         merged_counts = merged_counts.sort_values(["chrom", "chromStart", "strand"])
-    write_tsv(merged_counts, args.outFile, WINDOWS_COLUMNS)
+    return merged_counts
 
 
 if __name__ == "__main__":

@@ -48,10 +48,19 @@ def main():
     parser.add_argument("pid")
     args = parser.parse_args()
 
-    candidate_rows = read_tsv(args.candidate_region_file).to_dict("records")
+    build_beds(args.candidate_region_file, args.pid, args.outfile1, args.outfile2)
 
-    write_bed(args.outfile1, build_bed_rows(candidate_rows, args.pid, 500))
-    write_bed(args.outfile2, build_bed_rows(candidate_rows, args.pid, 100))
+
+def build_beds(
+    candidate_region_file: str,
+    pid: str,
+    zoomed_out_path: str,
+    zoomed_in_path: str,
+):
+    candidate_rows = read_tsv(candidate_region_file).to_dict("records")
+
+    write_bed(zoomed_out_path, build_bed_rows(candidate_rows, pid, 500))
+    write_bed(zoomed_in_path, build_bed_rows(candidate_rows, pid, 100))
 
 
 if __name__ == "__main__":

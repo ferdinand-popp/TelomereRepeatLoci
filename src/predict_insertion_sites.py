@@ -49,12 +49,25 @@ def main():
     parser.add_argument("outfile")
     args = parser.parse_args()
 
-    candidate_df = read_tsv(args.candidate_region_file)
+    output_df, output_fields = predict_insertions(
+        args.candidate_region_file,
+        args.clipped_reads_file,
+        args.discordant_read_file,
+    )
+    write_tsv(output_df, args.outfile, output_fields)
+
+
+def predict_insertions(
+    candidate_region_file: str,
+    clipped_reads_file: str,
+    discordant_read_file: str,
+):
+    candidate_df = read_tsv(candidate_region_file)
     candidate_rows = candidate_df.to_dict("records")
     candidate_fields = list(candidate_df.columns)
 
-    clipped_rows = read_tsv(args.clipped_reads_file).to_dict("records")
-    discordant_rows = read_tsv(args.discordant_read_file).to_dict("records")
+    clipped_rows = read_tsv(clipped_reads_file).to_dict("records")
+    discordant_rows = read_tsv(discordant_read_file).to_dict("records")
 
     clipped_by_window = defaultdict(list)
     for row in clipped_rows:
@@ -95,6 +108,7 @@ def main():
             clipped_col = "start"
         else:
             continue
+        # attention: does not consider reads that are clipped on both ends (these are unlikely to be indicative of telomere insertion)
 
         filtered = [
             r for r in clipped_tel if r.get("expected_pos_fusion") == expected_pos
@@ -115,7 +129,7 @@ def main():
         med = median(discordant_filtered)
         if med is None:
             continue
-        med += 50
+        med += 50 # to get middle of read
 
         filtered_pos = []
         for r in filtered:
@@ -164,7 +178,7 @@ def main():
             region["repeat_forward"] = "CCCTAA"
 
     output_df = pd.DataFrame(candidate_rows)
-    write_tsv(output_df, args.outfile, output_fields)
+    return output_df, output_fields
 
 
 if __name__ == "__main__":

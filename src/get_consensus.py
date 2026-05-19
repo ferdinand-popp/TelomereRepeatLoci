@@ -111,17 +111,26 @@ def main():
     parser.add_argument("--reference", default="")
     args = parser.parse_args()
 
-    candidate_df = read_tsv(args.candidate_regions_file)
+    output_df, out_fields = build_consensus(
+        args.candidate_regions_file, args.clipped_read_file, args.reference
+    )
+    write_tsv(output_df, args.outfile, out_fields)
+
+
+def build_consensus(
+    candidate_regions_file: str, clipped_read_file: str, reference: str = ""
+):
+    candidate_df = read_tsv(candidate_regions_file)
     candidate_rows = candidate_df.to_dict("records")
     candidate_fields = list(candidate_df.columns)
 
-    clipped_rows = read_tsv(args.clipped_read_file).to_dict("records")
+    clipped_rows = read_tsv(clipped_read_file).to_dict("records")
 
     clipped_by_window = {}
     for row in clipped_rows:
         clipped_by_window.setdefault(row.get("window", ""), []).append(row)
 
-    fasta = pysam.FastaFile(args.reference) if args.reference else None
+    fasta = pysam.FastaFile(reference) if reference else None
 
     extra_fields = ["consensus", "flanking_seq", "bp_microhomology"]
     out_fields = candidate_fields + [
@@ -190,7 +199,7 @@ def main():
         fasta.close()
 
     output_df = pd.DataFrame(candidate_rows)
-    write_tsv(output_df, args.outfile, out_fields)
+    return output_df, out_fields
 
 
 if __name__ == "__main__":
