@@ -22,8 +22,9 @@
 #        --outfile <output log file>
 
 
-import os
 import argparse
+import os
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -31,91 +32,6 @@ import matplotlib.pyplot as plot
 from matplotlib import gridspec
 import pandas as pd
 import pysam
-
-
-argument_parser = argparse.ArgumentParser(
-    description="This script generates a pdf file for each entry in a bed file."
-)
-argument_parser.add_argument(
-    "--control",
-    metavar="FILE",
-    type=str,
-    default=None,
-    help="input bam file of the control",
-)
-argument_parser.add_argument(
-    "--tumor",
-    metavar="FILE",
-    type=str,
-    required=True,
-    help="input bam file of the tumor",
-)
-argument_parser.add_argument(
-    "--ref",
-    metavar="FILE",
-    type=str,
-    required=True,
-    help="input reference genome file (fastq format)",
-)
-argument_parser.add_argument(
-    "--bed", metavar="FILE", type=str, default=None, help="input bed file"
-)
-argument_parser.add_argument(
-    "--annotations",
-    metavar="FILE",
-    type=str,
-    default=None,
-    help="annotation track indexed with tabix",
-)
-argument_parser.add_argument(
-    "--prefix",
-    metavar="PREFIX",
-    type=str,
-    default="./",
-    help="target directory and file name prefix for generated output files",
-)
-argument_parser.add_argument(
-    "--samtoolsbin",
-    metavar="N",
-    type=str,
-    default="samtools",
-    help="(unused) kept for compatibility",
-)
-argument_parser.add_argument(
-    "--tabixbin",
-    metavar="N",
-    type=str,
-    default="tabix",
-    help="(unused) kept for compatibility",
-)
-argument_parser.add_argument(
-    "--colored_reads_tumor", type=str, default=None, help="a table with reads to color"
-)
-argument_parser.add_argument(
-    "--colored_reads_control",
-    type=str,
-    default=None,
-    help="a table with reads to color",
-)
-argument_parser.add_argument(
-    "--clipped_reads_tumor",
-    type=str,
-    default=None,
-    help="a table with all clipped read sequences in tumor sample",
-)
-argument_parser.add_argument(
-    "--clipped_reads_control",
-    type=str,
-    default=None,
-    help="a table with all clipped read sequences in control sample",
-)
-argument_parser.add_argument(
-    "--outfile",
-    type=str,
-    default=None,
-    help="path to dummy output file (needed for snakemake)",
-)
-parsed_arguments = argument_parser.parse_args()
 
 
 basepair_colors_axis = {
@@ -132,6 +48,95 @@ basepair_colors = {
     "T": "#FF4D4D",
     "N": "#00ffff",
 }
+
+
+def parse_args(argv=None):
+    argument_parser = argparse.ArgumentParser(
+        description="This script generates a pdf file for each entry in a bed file."
+    )
+    argument_parser.add_argument(
+        "--control",
+        metavar="FILE",
+        type=str,
+        default=None,
+        help="input bam file of the control",
+    )
+    argument_parser.add_argument(
+        "--tumor",
+        metavar="FILE",
+        type=str,
+        required=True,
+        help="input bam file of the tumor",
+    )
+    argument_parser.add_argument(
+        "--ref",
+        metavar="FILE",
+        type=str,
+        required=True,
+        help="input reference genome file (fastq format)",
+    )
+    argument_parser.add_argument(
+        "--bed", metavar="FILE", type=str, default=None, help="input bed file"
+    )
+    argument_parser.add_argument(
+        "--annotations",
+        metavar="FILE",
+        type=str,
+        default=None,
+        help="annotation track indexed with tabix",
+    )
+    argument_parser.add_argument(
+        "--prefix",
+        metavar="PREFIX",
+        type=str,
+        default="./",
+        help="target directory and file name prefix for generated output files",
+    )
+    argument_parser.add_argument(
+        "--samtoolsbin",
+        metavar="N",
+        type=str,
+        default="samtools",
+        help="(unused) kept for compatibility",
+    )
+    argument_parser.add_argument(
+        "--tabixbin",
+        metavar="N",
+        type=str,
+        default="tabix",
+        help="(unused) kept for compatibility",
+    )
+    argument_parser.add_argument(
+        "--colored_reads_tumor",
+        type=str,
+        default=None,
+        help="a table with reads to color",
+    )
+    argument_parser.add_argument(
+        "--colored_reads_control",
+        type=str,
+        default=None,
+        help="a table with reads to color",
+    )
+    argument_parser.add_argument(
+        "--clipped_reads_tumor",
+        type=str,
+        default=None,
+        help="a table with all clipped read sequences in tumor sample",
+    )
+    argument_parser.add_argument(
+        "--clipped_reads_control",
+        type=str,
+        default=None,
+        help="a table with all clipped read sequences in control sample",
+    )
+    argument_parser.add_argument(
+        "--outfile",
+        type=str,
+        default=None,
+        help="path to dummy output file (needed for snakemake)",
+    )
+    return argument_parser.parse_args(argv)
 
 
 class ReferenceBuffer(object):
@@ -413,7 +418,16 @@ def plot_cigars(
     ax.set_yticks([])
 
 
-def plot_region(region_chrom, region_center, region_left, region_right, plot_title):
+def plot_region(
+    parsed_arguments,
+    clipped_reads_tumor_dict,
+    clipped_reads_control_dict,
+    region_chrom,
+    region_center,
+    region_left,
+    region_right,
+    plot_title,
+):
     region_string = "%s:%i-%i" % (region_chrom, region_left, region_right)
 
     samtools_reads1 = []
@@ -534,7 +548,9 @@ def plot_region(region_chrom, region_center, region_left, region_right, plot_tit
                 for read in samtools_reads2
                 if read[5] != "*"
             ],
-            [bool(int(read[1]) & 0x10) for read in samtools_reads2 if read[5] != "*"],
+            [
+                bool(int(read[1]) & 0x10) for read in samtools_reads2 if read[5] != "*"
+            ],
             [read[0] for read in samtools_reads2 if read[5] != "*"],
             [int(read[1]) for read in samtools_reads2 if read[5] != "*"],
             colored_reads_tumor,
@@ -662,9 +678,9 @@ def getReverseComplement(sequence):
     sequence_temp = sequence_temp.replace("T", "4")
 
     sequence_temp2 = sequence_temp.replace("1", "T")
-    sequence_temp2 = sequence_temp2.replace("2", "G")
-    sequence_temp2 = sequence_temp2.replace("3", "C")
-    sequence_temp2 = sequence_temp2.replace("4", "A")
+    sequence_temp2 = sequence_temp.replace("2", "G")
+    sequence_temp2 = sequence_temp.replace("3", "C")
+    sequence_temp2 = sequence_temp.replace("4", "A")
 
     sequence_reverse_complement = sequence_temp2[::-1]  # reverses a string
 
@@ -705,54 +721,6 @@ def getClippedSequences(clipped_read_file):
             df[col] = ""
     read_ids = df["read_name"] + "_" + df["read_1_2"]
     return dict(zip(read_ids.tolist(), df["sequence"].tolist()))
-
-
-#############################################################################################################################
-
-# make dictionary of clipped reads (if table is provided)
-if parsed_arguments.clipped_reads_tumor:
-    clipped_reads_tumor_dict = getClippedSequences(parsed_arguments.clipped_reads_tumor)
-else:
-    clipped_reads_tumor_dict = None
-
-if parsed_arguments.clipped_reads_control:
-    clipped_reads_control_dict = getClippedSequences(
-        parsed_arguments.clipped_reads_control
-    )
-else:
-    clipped_reads_control_dict = None
-
-
-# go through bed file and make plots for each
-if parsed_arguments.bed:
-    for line in open(parsed_arguments.bed, "r"):
-        if line[:1] != "#":
-            region_chrom = line.split("\t")[0]
-            region_left = int(line.split("\t")[1])
-            region_right = int(line.split("\t")[2])
-            region_center = int(line.split("\t")[3])
-            pid = line.rstrip().split("\t")[4]
-
-            if os.path.isfile(
-                "%s%s_%s_%i.png"
-                % (parsed_arguments.prefix, pid, region_chrom, region_center)
-            ):
-                continue
-
-            plot_title = "%s %s:%s" % (pid, region_chrom, region_center)
-
-            plot_region(
-                region_chrom, region_center, region_left, region_right, plot_title
-            )
-
-            # plot.savefig( "%s%s_%s_%i.png" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
-            plot.savefig(
-                "%s%s_%s_%i.pdf"
-                % (parsed_arguments.prefix, pid, region_chrom, region_center)
-            )
-            plot.clf()
-            plot.cla()
-            plot.close()
 
 
 def read_bam_region(bam_path, region_string):
@@ -800,7 +768,65 @@ def read_primary_alignment(bamfile, read_name, sa_tag):
     return reads[0].query_sequence or ""
 
 
-# write output file for snakemake
-outfile = open(parsed_arguments.outfile, "w")
-outfile.write("complete")
-outfile.close()
+def run(parsed_arguments):
+    if parsed_arguments.clipped_reads_tumor:
+        clipped_reads_tumor_dict = getClippedSequences(parsed_arguments.clipped_reads_tumor)
+    else:
+        clipped_reads_tumor_dict = None
+
+    if parsed_arguments.clipped_reads_control:
+        clipped_reads_control_dict = getClippedSequences(
+            parsed_arguments.clipped_reads_control
+        )
+    else:
+        clipped_reads_control_dict = None
+
+    if parsed_arguments.bed:
+        for line in open(parsed_arguments.bed, "r"):
+            if line[:1] != "#":
+                region_chrom = line.split("\t")[0]
+                region_left = int(line.split("\t")[1])
+                region_right = int(line.split("\t")[2])
+                region_center = int(line.split("\t")[3])
+                pid = line.rstrip().split("\t")[4]
+
+                if os.path.isfile(
+                    "%s%s_%s_%i.png"
+                    % (parsed_arguments.prefix, pid, region_chrom, region_center)
+                ):
+                    continue
+
+                plot_title = "%s %s:%s" % (pid, region_chrom, region_center)
+
+                plot_region(
+                    parsed_arguments,
+                    clipped_reads_tumor_dict,
+                    clipped_reads_control_dict,
+                    region_chrom,
+                    region_center,
+                    region_left,
+                    region_right,
+                    plot_title,
+                )
+
+                # plot.savefig( "%s%s_%s_%i.png" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
+                plot.savefig(
+                    "%s%s_%s_%i.pdf"
+                    % (parsed_arguments.prefix, pid, region_chrom, region_center)
+                )
+                plot.clf()
+                plot.cla()
+                plot.close()
+
+    if parsed_arguments.outfile:
+        with open(parsed_arguments.outfile, "w", encoding="utf-8") as outfile:
+            outfile.write("complete")
+
+
+def main(argv=None):
+    parsed_arguments = parse_args(argv)
+    run(parsed_arguments)
+
+
+if __name__ == "__main__":
+    main()

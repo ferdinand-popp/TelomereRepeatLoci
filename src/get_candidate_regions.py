@@ -16,7 +16,22 @@ def main():
     parser.add_argument("consider_blacklist")
     args = parser.parse_args()
 
-    df = read_tsv(args.window_file)
+    df = filter_candidates(
+        read_tsv(args.window_file),
+        args.tumor_discordant_read_lower_limit,
+        args.control_discordant_read_upper_limit,
+        args.consider_blacklist,
+    )
+    write_tsv(df, args.candidate_region_file, list(df.columns))
+
+
+def filter_candidates(
+    df: pd.DataFrame,
+    tumor_discordant_read_lower_limit: float,
+    control_discordant_read_upper_limit: float,
+    consider_blacklist: str,
+) -> pd.DataFrame:
+    df = df.copy()
     if "tumor_discordant_read_count" not in df.columns:
         df["tumor_discordant_read_count"] = "0"
     if "control_discordant_read_count" not in df.columns:
@@ -30,16 +45,12 @@ def main():
     ).fillna(0)
 
     filtered = df[
-        (df["tumor_discordant_read_count"] >= args.tumor_discordant_read_lower_limit)
-        & (
-            df["control_discordant_read_count"]
-            <= args.control_discordant_read_upper_limit
-        )
+        (df["tumor_discordant_read_count"] >= tumor_discordant_read_lower_limit)
+        & (df["control_discordant_read_count"] <= control_discordant_read_upper_limit)
     ]
-    if args.consider_blacklist == "True" and "blacklisted" in filtered.columns:
+    if consider_blacklist == "True" and "blacklisted" in filtered.columns:
         filtered = filtered[filtered["blacklisted"] != "yes"]
-
-    write_tsv(filtered, args.candidate_region_file, list(df.columns))
+    return filtered
 
 
 if __name__ == "__main__":

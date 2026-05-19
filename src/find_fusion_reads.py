@@ -111,9 +111,14 @@ def main():
     parser.add_argument("outfile")
     args = parser.parse_args()
 
-    candidate_regions = read_tsv(args.candidate_region_file).to_dict("records")
+    df = find_fusion_reads(args.candidate_region_file, args.bamfile)
+    write_tsv(df, args.outfile, FUSION_READS_COLUMNS)
 
-    bam = pysam.AlignmentFile(args.bamfile, "rb")
+
+def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
+    candidate_regions = read_tsv(candidate_region_file).to_dict("records")
+
+    bam = pysam.AlignmentFile(bamfile, "rb")
     out_rows = []
 
     for region in candidate_regions:
@@ -208,8 +213,7 @@ def main():
 
     bam.close()
 
-    df = pd.DataFrame(out_rows)
-    write_tsv(df, args.outfile, FUSION_READS_COLUMNS)
+    return pd.DataFrame(out_rows)
 
 
 if __name__ == "__main__":

@@ -59,5 +59,12 @@ def main():
     write_tsv(df, args.output, DISCORDANT_READS_COLUMNS)
 
 
+def run(input_bam: str, output_tsv: str) -> pd.DataFrame:
+    rows = read_discordant_pairs(input_bam)
+    df = pd.DataFrame(rows)
+    write_tsv(df, output_tsv, DISCORDANT_READS_COLUMNS)
+    return df
+
+
 if __name__ == "__main__":
     main()
