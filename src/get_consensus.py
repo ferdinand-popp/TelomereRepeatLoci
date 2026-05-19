@@ -178,11 +178,11 @@ def build_consensus(
             try:
                 if strand == "+":
                     flanking = fasta.fetch(
-                        chrom_chr, max(0, insertion_site - 21), insertion_site - 1
+                        chrom_chr, max(0, insertion_site - 20), insertion_site
                     )
                 elif strand == "-":
                     flanking = fasta.fetch(
-                        chrom_chr, insertion_site - 1, insertion_site + 19
+                        chrom_chr, insertion_site, insertion_site + 20
                     )
             except Exception:
                 flanking = ""
