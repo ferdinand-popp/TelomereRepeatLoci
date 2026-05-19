@@ -23,12 +23,12 @@ def read_pair_label(read):
     return ""
 
 
-def alignment_end(start_1based, cigartuples):
-    """Return 1-based inclusive reference end for an alignment."""
+def alignment_end(start0, cigartuples):
+    """Return 0-based exclusive reference end for an alignment."""
     if not cigartuples:
-        return start_1based
+        return start0
     ref_len = sum(length for op, length in cigartuples if op in REF_CONSUME_OPS)
-    return start_1based + ref_len - 1
+    return start0 + ref_len
 
 
 def reverse_complement(seq):
@@ -141,8 +141,8 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
             if "S" not in cigar:
                 continue
 
-            start_1based = read.reference_start + 1
-            end_1based = alignment_end(start_1based, read.cigartuples)
+            start0 = read.reference_start
+            end0 = alignment_end(start0, read.cigartuples)
             sequence = read.query_sequence or ""
             clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
             clipped_sequence = ", ".join(clipped_parts)
@@ -154,8 +154,8 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
                     "window": window,
                     "read_name": read.query_name,
                     "read_1_2": read_pair_label(read),
-                    "start": start_1based,
-                    "end": end_1based,
+                    "start": start0,
+                    "end": end0,
                     "cigar": cigar,
                     "chr_primary_align": "",
                     "coord_primary_align": "",
@@ -179,13 +179,14 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
             except KeyError:
                 continue
             primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
+            primary_pos0 = primary_pos - 1 if primary_pos else 0
             sequence = get_primary_sequence(
                 bam, read, primary_chr, primary_pos, primary_strand
             )
 
             cigar = read.cigarstring or ""
-            start_1based = read.reference_start + 1
-            end_1based = alignment_end(start_1based, read.cigartuples)
+            start0 = read.reference_start
+            end0 = alignment_end(start0, read.cigartuples)
             clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
             clipped_sequence = ", ".join(clipped_parts)
             part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
@@ -196,11 +197,11 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
                     "window": window,
                     "read_name": read.query_name,
                     "read_1_2": read_pair_label(read),
-                    "start": start_1based,
-                    "end": end_1based,
+                    "start": start0,
+                    "end": end0,
                     "cigar": cigar,
                     "chr_primary_align": primary_chr,
-                    "coord_primary_align": primary_pos,
+                    "coord_primary_align": primary_pos0,
                     "strand_primary_align": primary_strand,
                     "sequence": sequence,
                     "clipped_sequence": clipped_sequence,
