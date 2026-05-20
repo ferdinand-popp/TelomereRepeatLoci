@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-telomere-repeat-loci = "main:main"
+telomere-repeat-loci = "telomererepeatloci.scripts:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -24,19 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["pipeline", "telomererepeatloci"]
-py-modules = [
-    "add_mate_mapq",
-    "count_discordant_reads",
-    "find_discordant_reads",
-    "find_fusion_reads",
-    "get_candidate_regions",
-    "get_consensus",
-    "main",
-    "make_bed_for_visualization",
-    "predict_insertion_sites",
-    "visualize_telomere_insertions",
-]
+packages = ["telomererepeatloci", "telomererepeatloci.pipeline"]
 
 [dependency-groups]
 dev = [

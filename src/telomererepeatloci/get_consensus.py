@@ -6,7 +6,7 @@ import re
 import pandas as pd
 import pysam
 
-from pipeline.tables import read_tsv, write_tsv
+from telomererepeatloci.pipeline.tables import read_tsv, write_tsv
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
