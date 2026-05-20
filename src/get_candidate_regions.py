@@ -132,9 +132,7 @@ def fuse_overlapping_candidates(
             if not should_fuse and control_overlap >= overlap_ratio_threshold:
                 should_fuse = True
             if should_fuse:
-                current["chromStart"] = min(
-                    current["chromStart"], row["chromStart"]
-                )
+                current["chromStart"] = min(current["chromStart"], row["chromStart"])
                 current["chromEnd"] = max(current["chromEnd"], row["chromEnd"])
                 current["_tumor_read_names"] = (
                     current["_tumor_read_names"] | row["_tumor_read_names"]

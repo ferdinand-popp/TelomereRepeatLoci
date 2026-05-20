@@ -129,7 +129,7 @@ def predict_insertions(
         med = median(discordant_filtered)
         if med is None:
             continue
-        med += 50 # to get middle of read
+        med += 50  # to get middle of read
 
         filtered_pos = []
         for r in filtered:
