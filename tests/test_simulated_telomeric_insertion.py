@@ -255,7 +255,7 @@ def test_pipeline_with_simulated_discordant_reads() -> None:
         subprocess.run(
             [
                 sys.executable,
-                str(repo_root / "src" / "main.py"),
+                str(repo_root / "src" / "telomererepeatloci" / "main.py"),
                 "--tumor-bam",
                 str(alignment_bam),
                 "--telomerehunter-dir",

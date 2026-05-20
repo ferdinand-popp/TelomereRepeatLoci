@@ -9,7 +9,11 @@ from typing import Iterable, List
 import pandas as pd
 import pysam
 
-from pipeline.tables import DISCORDANT_READS_WITH_MAPQ_COLUMNS, read_tsv, write_tsv
+from telomererepeatloci.pipeline.tables import (
+    DISCORDANT_READS_WITH_MAPQ_COLUMNS,
+    read_tsv,
+    write_tsv,
+)
 
 
 WINDOW_BP = 5000

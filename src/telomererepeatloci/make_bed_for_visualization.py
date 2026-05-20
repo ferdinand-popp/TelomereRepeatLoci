@@ -4,7 +4,7 @@ import argparse
 
 import pandas as pd
 
-from pipeline.tables import BED_COLUMNS, read_tsv, write_tsv
+from telomererepeatloci.pipeline.tables import BED_COLUMNS, read_tsv, write_tsv
 
 
 def build_bed_rows(candidate_rows, pid, flank):
