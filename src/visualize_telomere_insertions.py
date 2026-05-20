@@ -595,9 +595,7 @@ def plot_region(
                 for read in samtools_reads2
                 if read[5] != "*"
             ],
-            [
-                bool(int(read[1]) & 0x10) for read in samtools_reads2 if read[5] != "*"
-            ],
+            [bool(int(read[1]) & 0x10) for read in samtools_reads2 if read[5] != "*"],
             [read[0] for read in samtools_reads2 if read[5] != "*"],
             [int(read[1]) for read in samtools_reads2 if read[5] != "*"],
             colored_reads_tumor,
@@ -712,7 +710,9 @@ def get_sequence(read, bamfile, clipped_read_dict=None):
         return read[9]
 
     chrom, pos, strand_primary = sa_tag
-    sequence = read_primary_alignment(bamfile, read_name, chrom, pos, is_read1, is_read2)
+    sequence = read_primary_alignment(
+        bamfile, read_name, chrom, pos, is_read1, is_read2
+    )
     if strand_supp != strand_primary:
         sequence = getReverseComplement(sequence)
     return sequence
@@ -834,11 +834,11 @@ def run(parsed_arguments):
             "Missing reference FASTA: provide --ref with a valid path."
         )
     if not os.path.exists(parsed_arguments.ref):
-        raise FileNotFoundError(
-            f"Reference FASTA not found: {parsed_arguments.ref}"
-        )
+        raise FileNotFoundError(f"Reference FASTA not found: {parsed_arguments.ref}")
     if parsed_arguments.clipped_reads_tumor:
-        clipped_reads_tumor_dict = getClippedSequences(parsed_arguments.clipped_reads_tumor)
+        clipped_reads_tumor_dict = getClippedSequences(
+            parsed_arguments.clipped_reads_tumor
+        )
     else:
         clipped_reads_tumor_dict = None
 

@@ -68,9 +68,7 @@ def load_table(path: str) -> pd.DataFrame:
     df["mate_position"] = df["mate_position"].astype(str).str.strip()
     df["_read_name_norm"] = df["read_name"].map(norm_read_name)
     df["_chrom_base"] = df["mate_chr"].str.replace(r"^chr", "", regex=True)
-    df["_pos0"] = pd.to_numeric(df["mate_position"], errors="coerce").astype(
-        "Int64"
-    )
+    df["_pos0"] = pd.to_numeric(df["mate_position"], errors="coerce").astype("Int64")
     return df
 
 
@@ -252,7 +250,9 @@ def add_mate_mapq_records(
     return pd.DataFrame(output_rows)
 
 
-def add_mate_mapq_file(input_table: str, bam_path: str, output_path: str) -> pd.DataFrame:
+def add_mate_mapq_file(
+    input_table: str, bam_path: str, output_path: str
+) -> pd.DataFrame:
     df = load_table(input_table)
     output_df = add_mate_mapq_records(df, bam_path)
     write_tsv(output_df, output_path, DISCORDANT_READS_WITH_MAPQ_COLUMNS)
