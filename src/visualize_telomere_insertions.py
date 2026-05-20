@@ -158,7 +158,47 @@ class ReferenceBuffer(object):
         return self.sequence[pos - self.offset]
 
 
-def get_annotations(region):
+_TABIX_HANDLE = None
+
+
+def get_tabix_handle(path):
+    global _TABIX_HANDLE
+    if _TABIX_HANDLE is None:
+        _TABIX_HANDLE = pysam.TabixFile(path)
+    return _TABIX_HANDLE
+
+
+def get_annotations(region, annotations_path):
+    if not annotations_path:
+        return None
+    tabix = get_tabix_handle(annotations_path)
+    chrom, span = region.split(":", 1)
+    start_s, end_s = span.split("-", 1)
+    try:
+        start = int(start_s)
+        end = int(end_s)
+    except ValueError:
+        return None
+    candidates = [chrom, chrom[3:] if chrom.startswith("chr") else f"chr{chrom}"]
+    for chrom_name in candidates:
+        try:
+            rows = list(tabix.fetch(chrom_name, max(0, start - 1), end))
+        except ValueError:
+            rows = []
+        if rows:
+            annotations = []
+            for line in rows:
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                name = parts[3] if len(parts) > 3 else ""
+                try:
+                    ann_start = int(parts[1])
+                    ann_end = int(parts[2])
+                except ValueError:
+                    continue
+                annotations.append([name, ann_start, ann_end])
+            return annotations
     return None
 
 
@@ -282,6 +322,13 @@ def plot_cigars(
     ax,
     reference_function,
 ):
+    def _base_color(sequence, rel_pos):
+        if 0 <= rel_pos < len(sequence):
+            base = sequence[rel_pos]
+        else:
+            base = "N"
+        return basepair_colors.get(base, basepair_colors["N"])
+
     patches = []
 
     read_colors = []
@@ -352,7 +399,7 @@ def plot_cigars(
                     1,
                     height=1,
                     left=abs_pos - 0.5,
-                    color=basepair_colors[sequence[rel_pos]],
+                    color=_base_color(sequence, rel_pos),
                     linewidth=0,
                     alpha=alpha_clipped,
                 )  # color of softclipped bases
@@ -362,7 +409,7 @@ def plot_cigars(
                     1,
                     height=1,
                     left=abs_pos - 0.5,
-                    color=basepair_colors[sequence[rel_pos]],
+                    color=_base_color(sequence, rel_pos),
                     linewidth=0,
                     alpha=alpha_clipped,
                 )  # color of hardclipped bases
@@ -436,7 +483,7 @@ def plot_region(
 
     samtools_reads2 = read_bam_region(parsed_arguments.tumor, region_string)
 
-    annotations = get_annotations(region_string)
+    annotations = get_annotations(region_string, parsed_arguments.annotations)
 
     if len(samtools_reads1) < 3000 and len(samtools_reads2) < 3000:
         # print( "region %s annotations: " % region_string, annotations )
@@ -622,51 +669,52 @@ def plot_region(
         print("reads control: " + str(len(samtools_reads1)))
 
 
+def parse_sa_tag(tag_value):
+    if not tag_value:
+        return None
+    entry = tag_value.split(";")[0]
+    parts = entry.split(",")
+    if len(parts) < 4:
+        return None
+    chrom = parts[0]
+    try:
+        pos = int(parts[1])
+    except ValueError:
+        return None
+    strand = parts[2]
+    return chrom, pos, strand
+
+
 def get_sequence(read, bamfile, clipped_read_dict=None):
     if "H" not in read[5]:
-        sequence = read[9]
+        return read[9]
 
-    elif clipped_read_dict:
+    if clipped_read_dict:
         flag = int(read[1])
-
         if flag & 0x40:
             read_1_2 = "READ1"
         elif flag & 0x80:
             read_1_2 = "READ2"
-
-        sequence = clipped_read_dict[read[0] + "_" + read_1_2]
-
-    else:
-        read_name = read[0]
-        flag = int(read[1])
-
-        if flag & 0x40:
-            flag_string = "64"
-        elif flag & 0x80:
-            flag_string = "128"
-
-        if flag & 0x10:
-            strand_supp = "-"
-            flag_string += " -f 16"
         else:
-            strand_supp = "+"
+            read_1_2 = ""
+        return clipped_read_dict.get(read[0] + "_" + read_1_2, "")
 
-        # extract SA Tag with position and strand of primary alignment
-        tags = read[11 : len(read)]
-        sa_tag = filter(lambda x: "SA:" in x, tags)
+    read_name = read[0]
+    flag = int(read[1])
+    strand_supp = "-" if flag & 0x10 else "+"
+    is_read1 = bool(flag & 0x40)
+    is_read2 = bool(flag & 0x80)
 
-        sa_tag = sa_tag[0].split(",")
+    tags = read[11:]
+    sa_values = [t.split("SA:Z:", 1)[1] for t in tags if t.startswith("SA:Z:")]
+    sa_tag = parse_sa_tag(sa_values[0]) if sa_values else None
+    if not sa_tag:
+        return read[9]
 
-        # pos_primary = sa_tag[0].replace("SA:Z:", "") + ":" + sa_tag[1] + "-" + sa_tag[1]
-        strand_primary = sa_tag[2]
-
-        # get sequence of original alignment
-        sequence = read_primary_alignment(bamfile, read_name, sa_tag)
-
-        # if read is mapped to different strand than supplementary alignment: get reverse complement
-        if strand_supp != strand_primary:
-            sequence = getReverseComplement(sequence)
-
+    chrom, pos, strand_primary = sa_tag
+    sequence = read_primary_alignment(bamfile, read_name, chrom, pos, is_read1, is_read2)
+    if strand_supp != strand_primary:
+        sequence = getReverseComplement(sequence)
     return sequence
 
 
@@ -726,19 +774,23 @@ def getClippedSequences(clipped_read_file):
 def read_bam_region(bam_path, region_string):
     chrom, span = region_string.split(":", 1)
     start_s, end_s = span.split("-", 1)
-    start = max(0, int(start_s))
+    start = max(0, int(start_s) - 1)
     end = int(end_s)
     reads = []
     with pysam.AlignmentFile(bam_path, "rb") as bam:
         for read in bam.fetch(chrom, start, end):
             if read.flag & 1024:
                 continue
+            tags = [
+                f"{tag}:{value_type}:{value}"
+                for tag, value, value_type in read.get_tags(with_value_type=True)
+            ]
             reads.append(
                 [
                     read.query_name,
                     str(read.flag),
                     read.reference_name or "*",
-                    str(read.reference_start),
+                    str(read.reference_start + 1),
                     str(read.mapping_quality),
                     read.cigarstring or "*",
                     "*",
@@ -747,28 +799,44 @@ def read_bam_region(bam_path, region_string):
                     read.query_sequence or "*",
                     "*",
                 ]
+                + tags
             )
     return reads
 
 
-def read_primary_alignment(bamfile, read_name, sa_tag):
-    chrom = sa_tag[0].replace("SA:Z:", "")
-    start = int(sa_tag[1]) - 1
-    end = int(sa_tag[1])
+def read_primary_alignment(bamfile, read_name, chrom, pos, is_read1, is_read2):
+    start = max(0, pos - 1)
+    end = pos
     with pysam.AlignmentFile(bamfile, "rb") as bam:
-        reads = [
+        candidates = [
             read
             for read in bam.fetch(chrom, start, end)
             if read.query_name == read_name
             and not read.is_supplementary
             and not read.is_secondary
         ]
-    if len(reads) != 1:
+    if is_read1:
+        candidates = [read for read in candidates if read.is_read1]
+    if is_read2:
+        candidates = [read for read in candidates if read.is_read2]
+    if not candidates:
         return ""
-    return reads[0].query_sequence or ""
+    if len(candidates) > 1:
+        exact = [read for read in candidates if read.reference_start == start]
+        if exact:
+            candidates = exact
+    return candidates[0].query_sequence or ""
 
 
 def run(parsed_arguments):
+    if not parsed_arguments.ref:
+        raise FileNotFoundError(
+            "Missing reference FASTA: provide --ref with a valid path."
+        )
+    if not os.path.exists(parsed_arguments.ref):
+        raise FileNotFoundError(
+            f"Reference FASTA not found: {parsed_arguments.ref}"
+        )
     if parsed_arguments.clipped_reads_tumor:
         clipped_reads_tumor_dict = getClippedSequences(parsed_arguments.clipped_reads_tumor)
     else:
