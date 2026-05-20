@@ -6,7 +6,7 @@ import re
 import pandas as pd
 import pysam
 
-from telomererepeatloci.pipeline.tables import FUSION_READS_COLUMNS, read_tsv, write_tsv
+from pipeline.tables import FUSION_READS_COLUMNS, read_tsv, write_tsv
 
 
 TELOMERE_PATTERN = re.compile(r"TTAGGG|CCCTAA")

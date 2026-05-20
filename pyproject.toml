@@ -24,7 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["telomererepeatloci", "telomererepeatloci.pipeline"]
+packages = ["telomererepeatloci", "pipeline"]
 
 [dependency-groups]
 dev = [

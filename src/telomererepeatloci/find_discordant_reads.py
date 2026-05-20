@@ -5,7 +5,7 @@ from collections import Counter
 
 import pandas as pd
 import pysam
-from telomererepeatloci.pipeline.tables import DISCORDANT_READS_COLUMNS, write_tsv
+from pipeline.tables import DISCORDANT_READS_COLUMNS, write_tsv
 
 
 def parse_args():
