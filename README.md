@@ -1,7 +1,7 @@
 # TelomereRepeatLoci
 *Python command-line workflow for detection of telomere repeat loci from WGS data*
 
-This Python command-line workflow detects telomere repeat loci within cancer genomes from WGS data. The input are BAM files from a tumor and a control sample (if available). In the first step, telomeric reads are extracted using the tool [TelomereHunter](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-019-2851-0). From the extracted telomeric reads, discordant reads are retrieved, where one mate is intratelomeric and the other mate is mapped to the chromosome. In regions with discordant reads, it then searches for clipped reads to find the precise position of the inserted telomere sequence.
+This Python command-line workflow detects telomere repeat loci within cancer genomes from WGS data. The input are BAM or CRAM files from a tumor and a control sample (if available). In the first step, telomeric reads are extracted using the tool [TelomereHunter](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-019-2851-0). From the extracted telomeric reads, discordant reads are retrieved, where one mate is intratelomeric and the other mate is mapped to the chromosome. In regions with discordant reads, it then searches for clipped reads to find the precise position of the inserted telomere sequence.
 
 <p align="center">
   <img src="resources/images/telomere_repeat_locus_schematic.png" alt="Detection of telomere repeat loci" width="700" />
@@ -94,7 +94,7 @@ To rule out remaining false positives, each telomere repeat locus should be chec
 
 ---
 
-### Running the workflow
+## Running the workflow
 
 Install from GitHub (no PyPI release yet):
 ```bash
@@ -141,7 +141,7 @@ TelomereHunter output directory:
 `<telomerehunter-dir>_TelomereRepeatLoci`.
 You can still override this with `--output-dir`.
 
-### Notes
+## Notes
 
 - The scripts in `src/` are orchestrated by `main.py`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
@@ -152,3 +152,42 @@ You can still override this with `--output-dir`.
 - run tests with `uv run pytest -v` -> WIP
 - `uv run ruff check --fix .`
 - `uv run ruff format .`
+
+## Testcase
+Download the sample CRAM (tumor BAM input), its index, and the reference FASTA (needed for visualization and microhomology) from 1000genomes:
+
+```bash
+mkdir -p data
+curl -L -C - \
+  -o data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
+  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/HG00152/high_coverage_alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram
+
+curl -L -C - \
+  -o data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram.crai \
+  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/HG00152/high_coverage_alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram.crai
+
+curl -L -C - \
+  -o data/GRCh38_full_analysis_set_plus_decoy_hla.fa \
+  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
+```
+
+Then run TelomereHunter2 on the CRAM to generate the intratelomeric BAM files and use those as inputs to `telomere-repeat-loci` (see `tests/simple_debug.py` for the expected paths).
+
+Example [TelomereHunter2](https://github.com/ualbertalab/TelomereHunter2) command (adjust paths as needed):
+
+```bash
+telomerehunter2 \
+  -ibt data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
+  -p HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage \
+  -o data/
+  -b telomerehunter2/cytoband_files/hg38_cytoBand.txt
+```
+
+Example run (tumor-only, matches the simple debug layout):
+
+```bash
+telomere-repeat-loci \
+  --tumor-bam data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
+  --tel-tumor-bam data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam \
+  --reference-fasta data/GRCh38_full_analysis_set_plus_decoy_hla.fa
+```
