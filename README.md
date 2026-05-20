@@ -96,6 +96,16 @@ To rule out remaining false positives, each telomere repeat locus should be chec
 
 ### Running the workflow
 
+Install from GitHub (no PyPI release yet):
+```bash
+pip install git+https://github.com/ferdinand-popp/TelomereRepeatLoci.git
+```
+
+Or with uv:
+```bash
+uv pip install git+https://github.com/ferdinand-popp/TelomereRepeatLoci.git
+```
+
 Using uv (python package manager) is recommended to run the workflow. After cloning the repository, run `uv sync` to install the required dependencies.
 ```bash
 git clone https://github.com/ferdinand-popp/TelomereRepeatLoci.git
@@ -105,7 +115,7 @@ uv sync
 The workflow is now started directly via Python (no Snakemake/YAML config required):
 
 ```bash
-uv run src/main.py \
+uv run telomere-repeat-loci \
   --tumor-bam /path/to/tumor_input.bam \
   --control-bam /path/to/control_input.bam \
   --tel-tumor-bam /path/to/tumor_intratelomeric.bam \
@@ -120,7 +130,7 @@ uv run src/main.py \
 Minimal single-sample run:
 
 ```bash
-uv run src/main.py \
+uv run telomere-repeat-loci \
   --tumor-bam /path/to/tumor_input.bam \
 ```
 
@@ -128,12 +138,6 @@ By default, output files are written to a new sibling directory outside the prov
 TelomereHunter output directory:
 `<telomerehunter-dir>_TelomereRepeatLoci`.
 You can still override this with `--output-dir`.
-
-Optional plotting can be enabled with:
-
-```bash
---run-visualization --samtoolsbin samtools
-```
 
 ### Notes
 
@@ -143,7 +147,6 @@ Optional plotting can be enabled with:
 - Discordant read screening uses overlapping 1 kb windows with a 500 bp step.
 - All coordinate columns written by the Python workflow are 0-based, half-open (pysam/BED-style).
 - Visualization uses pysam directly; the `--samtoolsbin` flag is kept for compatibility.
-- pre-commit hooks use with ruff for dev
-- run tests with `uv run pytest -v`
+- run tests with `uv run pytest -v` -> WIP
 - `uv run ruff check --fix .`
 - `uv run ruff format .`
