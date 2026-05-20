@@ -355,12 +355,9 @@ def process_sample(args, scripts_dir):
 
 def get_version_from_package():
     try:
-        from importlib.metadata import PackageNotFoundError, version
+        from telomererepeatloci.version import __version__
 
-        try:
-            return version("telomererepeatloci")
-        except PackageNotFoundError:
-            return "unknown - check pyproject.toml file"
+        return __version__
     except ImportError:
         return "unknown - check pyproject.toml file"
 

@@ -1,23 +1,46 @@
 [project]
 name = "telomererepeatloci"
 version = "0.1.0"
-description = "Analyze telomere repeat loci in genomic sequences. Belongs to the TelomereHunter2 toolkit."
-authors = [
-    { name = "Ferdinand Popp", email = "" },
-    { name = "Lina Sieverling", email = "" }
-]
+description = "Analyze telomere repeat loci in genomic sequences."
 readme = "README.md"
-requires-python = ">=3.11"
+authors = [
+    { name = "Ferdinand Popp" },
+    { name = "Lina Sieverling" }
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
 dependencies = [
-    "matplotlib>=3.10.8",
-    "numpy>=2.4.2",
-    "pandas>=3.0.2",
-    "pysam>=0.23.3",
+    "matplotlib>=3.8",
+    "pandas>=2.0",
+    "pysam>=0.22",
+]
+
+[project.scripts]
+telomere-repeat-loci = "main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["pipeline", "telomererepeatloci"]
+py-modules = [
+    "add_mate_mapq",
+    "count_discordant_reads",
+    "find_discordant_reads",
+    "find_fusion_reads",
+    "get_candidate_regions",
+    "get_consensus",
+    "main",
+    "make_bed_for_visualization",
+    "predict_insertion_sites",
+    "visualize_telomere_insertions",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
-    "ruff>=0.15.5",
-    "pre-commit>=4.5.1",
+    "pytest>=7",
+    "ruff>=0.6",
+    "pre-commit>=3.6",
 ]
