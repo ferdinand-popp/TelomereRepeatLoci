@@ -6,7 +6,7 @@ import ast
 
 import pandas as pd
 
-from telomererepeatloci.pipeline.tables import read_tsv, write_tsv
+from pipeline.tables import read_tsv, write_tsv
 
 
 def main():

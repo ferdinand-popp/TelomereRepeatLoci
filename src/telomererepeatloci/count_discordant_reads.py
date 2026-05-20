@@ -5,7 +5,7 @@ import os
 
 import pandas as pd
 
-from telomererepeatloci.pipeline.tables import WINDOWS_COLUMNS, read_tsv, write_tsv
+from pipeline.tables import WINDOWS_COLUMNS, read_tsv, write_tsv
 
 MIN_MATE_MAPQ = 30
 WINDOW_SIZE = 1000
