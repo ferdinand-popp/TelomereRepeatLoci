@@ -20,14 +20,14 @@ def main():
             project_root
             / "data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam"
         ),
-        control_bam=str(
-            project_root
-            / "data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram"
-        ),
-        tel_control_bam=str(
-            project_root
-            / "data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam"
-        ),
+        # control_bam=str(
+        #     project_root
+        #     / "data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram"
+        # ),
+        # tel_control_bam=str(
+        #     project_root
+        #     / "data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam"
+        # ),
         # downloaded with curl -L -C - http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa -o GRCh38_full_analysis_set_plus_decoy_hla.fa
         reference_fasta=str(
             project_root / "data/GRCh38_full_analysis_set_plus_decoy_hla.fa"
