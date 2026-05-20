@@ -1,0 +1,19 @@
+repos:
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.0  # Use latest stable version
+  hooks:
+    - id: ruff-check
+      args: [--fix]  # Auto-fix lint issues
+      stages: [ pre-push ]            # runs only before git push
+    - id: ruff-format  # Format code
+      stages: [ pre-push ]            # runs only before git push
+
+#- repo: local
+#  hooks:
+#    - id: pytest-check
+#      name: Run pytest
+#      entry: uv run pytest
+#      language: system
+#      pass_filenames: false
+#      stages: [pre-push]        # run only before git push
+#      args: ["-v", "tests/"]

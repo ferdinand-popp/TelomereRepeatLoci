@@ -1,0 +1,10 @@
+internal.md
+/.venv
+__pycache__/
+*.py[cod]
+/data
+/output
+/.idea
+/debug
+README_local.md
+*.egg-info*
