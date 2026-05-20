@@ -127,11 +127,13 @@ uv run telomere-repeat-loci \
   --reference-fasta /path/to/reference.fa
 ```
 
-Minimal single-sample run:
+Minimal single-sample run (reference FASTA is still required for microhomology analysis and visualization):
 
 ```bash
 uv run telomere-repeat-loci \
   --tumor-bam /path/to/tumor_input.bam \
+  --tel-tumor-bam /path/to/tumor_intratelomeric.bam \
+  --reference-fasta /path/to/reference.fa
 ```
 
 By default, output files are written to a new sibling directory outside the provided
