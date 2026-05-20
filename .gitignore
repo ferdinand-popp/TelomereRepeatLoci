@@ -7,3 +7,4 @@ __pycache__/
 /.idea
 /debug
 README_local.md
+*.egg-info*
