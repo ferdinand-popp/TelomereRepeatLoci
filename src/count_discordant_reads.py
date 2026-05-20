@@ -165,10 +165,6 @@ def compute_windows(
                 lambda w: "yes" if w in blacklist else "no"
             )
 
-    if "_tumor_read_names" in merged_counts.columns:
-        merged_counts = merged_counts.drop(columns=["_tumor_read_names"])
-    if "_control_read_names" in merged_counts.columns:
-        merged_counts = merged_counts.drop(columns=["_control_read_names"])
     if not merged_counts.empty:
         merged_counts = merged_counts.sort_values(["chrom", "chromStart", "strand"])
     return merged_counts

@@ -19,6 +19,8 @@ WINDOWS_COLUMNS = [
     "tumor_discordant_read_count",
     "control_discordant_read_count",
     "blacklisted",
+    "_tumor_read_names",
+    "_control_read_names",
 ]
 FUSION_READS_COLUMNS = [
     "window",
