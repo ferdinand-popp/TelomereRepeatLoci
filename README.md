@@ -179,7 +179,7 @@ Example [TelomereHunter2](https://github.com/ualbertalab/TelomereHunter2) comman
 telomerehunter2 \
   -ibt data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
   -p HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage \
-  -o data/
+  -o data/ \
   -b telomerehunter2/cytoband_files/hg38_cytoBand.txt
 ```
 
