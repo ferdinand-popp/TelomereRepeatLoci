@@ -183,13 +183,14 @@ uv run telomerehunter2 \
   -b hg38
 ```
 
-Example run (tumor-only, lowered lower read limit for regions on small testing file):
+Example run (tumor-only, lowered lower read limit for regions on small testing file --plot-min-support 2):
 
 ```bash
 uv run telomere-repeat-loci \
   --tumor-bam data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
   --tel-tumor-bam results/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam \
-  --reference-fasta data/GRCh38_full_analysis_set_plus_decoy_hla.fa
+  --reference-fasta data/GRCh38_full_analysis_set_plus_decoy_hla.fa \
+  --plot-min-support 2
 ```
 
 Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_consensus.tsv` should have regions and 
