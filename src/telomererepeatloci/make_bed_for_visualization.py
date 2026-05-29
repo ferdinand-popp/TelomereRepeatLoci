@@ -15,7 +15,7 @@ def build_bed_rows(candidate_rows, pid, flank, min_support):
         except (TypeError, ValueError):
             continue
         try:
-            support = float(row.get("reads_supporting_insertion_pos", 0))
+            support = int(row.get("reads_supporting_insertion_pos", 0))
         except (TypeError, ValueError):
             support = 0
         if support < min_support:
