@@ -44,9 +44,9 @@ def parse_args():
     parser.add_argument("--consider-blacklist", action="store_true")
     parser.add_argument("--reference-fasta", default="")
     parser.add_argument(
-        "--run-visualization",
+        "--skip-visualization",
         action="store_true",
-        help="Generate zoomed-in plots.",
+        help="Skip generation of zoomed-in plots.",
     )
     parser.add_argument(
         "--plot-min-support",
@@ -331,7 +331,7 @@ def process_sample(args, scripts_dir):
         ]
     )
 
-    if args.run_visualization:
+    if not args.skip_visualization:
         visualize_cmd = [
             sys.executable,
             str(scripts_dir / "visualize_telomere_insertions.py"),
