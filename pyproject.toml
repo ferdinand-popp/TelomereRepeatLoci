@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-telomere-repeat-loci = "telomererepeatloci.scripts:main"
+telomere-repeat-loci = "telomererepeatloci.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
