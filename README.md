@@ -193,4 +193,4 @@ uv run telomere-repeat-loci \
   --plot-min-support 2
 ```
 
-Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_consensus.tsv` should have regions and 
+Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_consensus.tsv` should have regions and plots should be generated for ChrX and Chr22
