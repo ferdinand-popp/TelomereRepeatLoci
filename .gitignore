@@ -8,3 +8,4 @@ __pycache__/
 /debug
 README_local.md
 *.egg-info*
+/results
