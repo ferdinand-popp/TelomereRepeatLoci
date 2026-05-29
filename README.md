@@ -176,18 +176,18 @@ Then run TelomereHunter2 on the CRAM to generate the intratelomeric BAM files an
 Example [TelomereHunter2](https://github.com/ualbertalab/TelomereHunter2) command (adjust paths as needed):
 
 ```bash
-telomerehunter2 \
+uv run telomerehunter2 \
   -ibt data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
   -p HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage \
-  -o data/ \
-  -b telomerehunter2/cytoband_files/hg38_cytoBand.txt
+  -o results/ \
+  -b hg38
 ```
 
 Example run (tumor-only, matches the simple debug layout):
 
 ```bash
-telomere-repeat-loci \
+uv run telomere-repeat-loci \
   --tumor-bam data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
-  --tel-tumor-bam data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam \
+  --tel-tumor-bam results/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/tumor_TelomerCnt_HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage_filtered_intratelomeric.bam \
   --reference-fasta data/GRCh38_full_analysis_set_plus_decoy_hla.fa
 ```
