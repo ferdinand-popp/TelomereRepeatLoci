@@ -48,6 +48,15 @@ def parse_args():
         action="store_true",
         help="Generate zoomed-in plots.",
     )
+    parser.add_argument(
+        "--plot-min-support",
+        type=float,
+        default=2.0,
+        help=(
+            "Minimum reads_supporting_insertion_pos required to include a region in "
+            "plot BEDs. Default: 2."
+        ),
+    )
     parser.add_argument("--samtoolsbin", default="samtools")
     return parser.parse_args()
 
@@ -317,6 +326,8 @@ def process_sample(args, scripts_dir):
             str(bed_zoomed_out),
             str(bed_zoomed_in),
             pid,
+            "--min-support",
+            str(args.plot_min_support),
         ]
     )
 

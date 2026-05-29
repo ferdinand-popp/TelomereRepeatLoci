@@ -7,7 +7,7 @@ import pandas as pd
 from pipeline.tables import BED_COLUMNS, read_tsv, write_tsv
 
 
-def build_bed_rows(candidate_rows, pid, flank):
+def build_bed_rows(candidate_rows, pid, flank, min_support):
     rows = []
     for row in candidate_rows:
         try:
@@ -18,7 +18,7 @@ def build_bed_rows(candidate_rows, pid, flank):
             support = float(row.get("reads_supporting_insertion_pos", 0))
         except (TypeError, ValueError):
             support = 0
-        if support <= 2:
+        if support <= min_support:
             continue
 
         chrom_start = max(0, insertion_site - flank)
@@ -46,9 +46,24 @@ def main():
     parser.add_argument("outfile1")
     parser.add_argument("outfile2")
     parser.add_argument("pid")
+    parser.add_argument(
+        "--min-support",
+        type=float,
+        default=2.0,
+        help=(
+            "Minimum reads_supporting_insertion_pos required to include a region in "
+            "plot BEDs. Default: 2."
+        ),
+    )
     args = parser.parse_args()
 
-    build_beds(args.candidate_region_file, args.pid, args.outfile1, args.outfile2)
+    build_beds(
+        args.candidate_region_file,
+        args.pid,
+        args.outfile1,
+        args.outfile2,
+        args.min_support,
+    )
 
 
 def build_beds(
@@ -56,11 +71,12 @@ def build_beds(
     pid: str,
     zoomed_out_path: str,
     zoomed_in_path: str,
+    min_support: float,
 ):
     candidate_rows = read_tsv(candidate_region_file).to_dict("records")
 
-    write_bed(zoomed_out_path, build_bed_rows(candidate_rows, pid, 500))
-    write_bed(zoomed_in_path, build_bed_rows(candidate_rows, pid, 100))
+    write_bed(zoomed_out_path, build_bed_rows(candidate_rows, pid, 500, min_support))
+    write_bed(zoomed_in_path, build_bed_rows(candidate_rows, pid, 100, min_support))
 
 
 if __name__ == "__main__":
