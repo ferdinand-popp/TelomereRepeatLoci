@@ -18,7 +18,7 @@ def build_bed_rows(candidate_rows, pid, flank, min_support):
             support = float(row.get("reads_supporting_insertion_pos", 0))
         except (TypeError, ValueError):
             support = 0
-        if support <= min_support:
+        if support < min_support:
             continue
 
         chrom_start = max(0, insertion_site - flank)
