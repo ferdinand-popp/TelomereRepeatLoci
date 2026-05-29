@@ -160,11 +160,11 @@ Download the sample CRAM (tumor BAM input), its index, and the reference FASTA (
 mkdir -p data
 curl -L -C - \
   -o data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram \
-  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/HG00152/high_coverage_alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram
+  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/GBR/HG00152/alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram
 
 curl -L -C - \
   -o data/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram.crai \
-  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/HG00152/high_coverage_alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram.crai
+  https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/GBR/HG00152/alignment/HG00152.alt_bwamem_GRCh38DH.20150718.GBR.low_coverage.cram.crai
 
 curl -L -C - \
   -o data/GRCh38_full_analysis_set_plus_decoy_hla.fa \
