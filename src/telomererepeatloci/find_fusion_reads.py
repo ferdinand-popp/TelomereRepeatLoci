@@ -104,6 +104,29 @@ def telomere_counts(seq):
     return t, c
 
 
+def _has_bad_encoding(value) -> bool:
+    if value is None:
+        return False
+    try:
+        text = str(value)
+    except Exception:
+        return True
+    if "\x00" in text:
+        return True
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
+def _row_has_bad_encoding(row: dict) -> bool:
+    for value in row.values():
+        if _has_bad_encoding(value):
+            return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("candidate_region_file")
@@ -148,26 +171,25 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
             clipped_sequence = ", ".join(clipped_parts)
             part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
             t_count, c_count = telomere_counts(clipped_sequence)
-
-            out_rows.append(
-                {
-                    "window": window,
-                    "read_name": read.query_name,
-                    "read_1_2": read_pair_label(read),
-                    "start": start0,
-                    "end": end0,
-                    "cigar": cigar,
-                    "chr_primary_align": "",
-                    "coord_primary_align": "",
-                    "strand_primary_align": "",
-                    "sequence": sequence,
-                    "clipped_sequence": clipped_sequence,
-                    "part_telomere": str(part_telomere),
-                    "TTAGGG_count": t_count,
-                    "CCCTAA_count": c_count,
-                    "expected_pos_fusion": expected_pos_fusion(cigar),
-                }
-            )
+            row = {
+                "window": window,
+                "read_name": read.query_name,
+                "read_1_2": read_pair_label(read),
+                "start": start0,
+                "end": end0,
+                "cigar": cigar,
+                "chr_primary_align": "",
+                "coord_primary_align": "",
+                "strand_primary_align": "",
+                "sequence": sequence,
+                "clipped_sequence": clipped_sequence,
+                "part_telomere": str(part_telomere),
+                "TTAGGG_count": t_count,
+                "CCCTAA_count": c_count,
+                "expected_pos_fusion": expected_pos_fusion(cigar),
+            }
+            if not _row_has_bad_encoding(row):
+                out_rows.append(row)
 
         # supplementary alignments (hard-clipped candidates)
         for read in bam.fetch(chrom, start0, end0):
@@ -191,26 +213,25 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
             clipped_sequence = ", ".join(clipped_parts)
             part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
             t_count, c_count = telomere_counts(clipped_sequence)
-
-            out_rows.append(
-                {
-                    "window": window,
-                    "read_name": read.query_name,
-                    "read_1_2": read_pair_label(read),
-                    "start": start0,
-                    "end": end0,
-                    "cigar": cigar,
-                    "chr_primary_align": primary_chr,
-                    "coord_primary_align": primary_pos0,
-                    "strand_primary_align": primary_strand,
-                    "sequence": sequence,
-                    "clipped_sequence": clipped_sequence,
-                    "part_telomere": str(part_telomere),
-                    "TTAGGG_count": t_count,
-                    "CCCTAA_count": c_count,
-                    "expected_pos_fusion": expected_pos_fusion(cigar),
-                }
-            )
+            row = {
+                "window": window,
+                "read_name": read.query_name,
+                "read_1_2": read_pair_label(read),
+                "start": start0,
+                "end": end0,
+                "cigar": cigar,
+                "chr_primary_align": primary_chr,
+                "coord_primary_align": primary_pos0,
+                "strand_primary_align": primary_strand,
+                "sequence": sequence,
+                "clipped_sequence": clipped_sequence,
+                "part_telomere": str(part_telomere),
+                "TTAGGG_count": t_count,
+                "CCCTAA_count": c_count,
+                "expected_pos_fusion": expected_pos_fusion(cigar),
+            }
+            if not _row_has_bad_encoding(row):
+                out_rows.append(row)
 
     bam.close()
 
