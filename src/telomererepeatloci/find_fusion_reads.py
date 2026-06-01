@@ -127,6 +127,14 @@ def _row_has_bad_encoding(row: dict) -> bool:
     return False
 
 
+def _strip_nuls(value: str) -> str:
+    if not value:
+        return value
+    if "\x00" in value:
+        return value.replace("\x00", "")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("candidate_region_file")
@@ -166,9 +174,9 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
 
             start0 = read.reference_start
             end0 = alignment_end(start0, read.cigartuples)
-            sequence = read.query_sequence or ""
+            sequence = _strip_nuls(read.query_sequence or "")
             clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
-            clipped_sequence = ", ".join(clipped_parts)
+            clipped_sequence = _strip_nuls(", ".join(clipped_parts))
             part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
             t_count, c_count = telomere_counts(clipped_sequence)
             row = {
@@ -202,15 +210,17 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
                 continue
             primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
             primary_pos0 = primary_pos - 1 if primary_pos else 0
-            sequence = get_primary_sequence(
-                bam, read, primary_chr, primary_pos, primary_strand
+            sequence = _strip_nuls(
+                get_primary_sequence(
+                    bam, read, primary_chr, primary_pos, primary_strand
+                )
             )
 
             cigar = read.cigarstring or ""
             start0 = read.reference_start
             end0 = alignment_end(start0, read.cigartuples)
             clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
-            clipped_sequence = ", ".join(clipped_parts)
+            clipped_sequence = _strip_nuls(", ".join(clipped_parts))
             part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
             t_count, c_count = telomere_counts(clipped_sequence)
             row = {
