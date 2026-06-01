@@ -63,4 +63,22 @@ def write_tsv(df, path, columns):
         if col not in out.columns:
             out[col] = ""
     out = out[columns]
+    out = sanitize_tsv_values(out)
     out.to_csv(path, sep="\t", index=False, encoding="utf-8")
+
+
+def sanitize_tsv_values(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].map(_sanitize_value)
+    return df
+
+
+def _sanitize_value(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if "\x00" in text:
+        text = text.replace("\x00", "")
+    return text
