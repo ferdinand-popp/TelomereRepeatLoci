@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import pandas as pd
 
 DISCORDANT_READS_COLUMNS = ["read_name", "mate_chr", "mate_position"]
@@ -53,9 +56,12 @@ def read_tsv(path):
 
 
 def write_tsv(df, path, columns):
+    path_obj = Path(path)
+    if path_obj.exists():
+        path_obj.unlink()
     out = df.copy()
     for col in columns:
         if col not in out.columns:
             out[col] = ""
     out = out[columns]
-    out.to_csv(path, sep="\t", index=False)
+    out.to_csv(path, sep="\t", index=False, encoding="utf-8")
