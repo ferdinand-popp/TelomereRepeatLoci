@@ -34,6 +34,7 @@ def filter_candidates(
     consider_blacklist: str,
 ) -> pd.DataFrame:
     df = df.copy()
+    df = filter_human_chromosomes(df)
     if "tumor_discordant_read_count" not in df.columns:
         df["tumor_discordant_read_count"] = "0"
     if "control_discordant_read_count" not in df.columns:
@@ -54,6 +55,15 @@ def filter_candidates(
         filtered = filtered[filtered["blacklisted"] != "yes"]
     filtered = fuse_overlapping_candidates(filtered)
     return drop_read_name_columns(filtered)
+
+
+def filter_human_chromosomes(df: pd.DataFrame) -> pd.DataFrame:
+    if "chrom" not in df.columns:
+        return df
+    allowed = {str(idx) for idx in range(1, 23)}
+    allowed.update({f"chr{idx}" for idx in range(1, 23)})
+    allowed.update({"X", "Y", "M", "chrX", "chrY", "chrM"})
+    return df[df["chrom"].astype(str).isin(allowed)]
 
 
 def drop_read_name_columns(df: pd.DataFrame) -> pd.DataFrame:
