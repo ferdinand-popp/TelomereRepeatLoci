@@ -54,6 +54,7 @@ def main():
         args.clipped_reads_file,
         args.discordant_read_file,
     )
+    output_df.sort_values(["chrom", "chromStart"], inplace=True)
     write_tsv(output_df, args.outfile, output_fields)
 
 
