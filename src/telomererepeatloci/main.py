@@ -58,7 +58,25 @@ def parse_args():
         ),
     )
     parser.add_argument("--samtoolsbin", default="samtools")
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    # Build a dict of only arguments actually provided on the command line
+    provided = {}
+    for action in parser._actions:
+        if action.dest == "help":
+            continue
+        value = getattr(args, action.dest)
+        if value is not None:
+            # Only include if it differs from default
+            if value != action.default:
+                provided[action.dest] = value
+
+    print("Provided arguments:")
+    for k, v in provided.items():
+        print(f"{k} = {v}")
+
+    return args
 
 
 def run_command(command):
