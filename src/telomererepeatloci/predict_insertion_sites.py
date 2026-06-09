@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
+import re
 import statistics
 from collections import defaultdict
+from typing import Optional
 
 import pandas as pd
+import pysam
 
 from pipeline.tables import read_tsv, write_tsv
 
 
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
+TELOMERE_PATTERN = re.compile(r"TTAGGG|CCCTAA")
+READ_CONSUME_OPS = {0, 1, 4, 7, 8}
+SITE_TOLERANCE_BP = 5
 
 
 def is_true(value):
@@ -41,6 +47,104 @@ def median(values):
     return statistics.median(values)
 
 
+def safe_div(numerator, denominator):
+    if denominator in (0, None):
+        return 0.0
+    return float(numerator) / float(denominator)
+
+
+def format_float(value):
+    return f"{value:.6f}"
+
+
+def clipped_sequences_from_cigar(seq, cigartuples):
+    if not seq or not cigartuples:
+        return []
+
+    qpos = 0
+    clips = []
+    for op, length in cigartuples:
+        if op in READ_CONSUME_OPS:
+            if op == 4:
+                clips.append(seq[qpos : qpos + length])
+            qpos += length
+    return [c for c in clips if c]
+
+
+def chr_aliases(chrom):
+    value = str(chrom).strip()
+    if value.startswith("chr"):
+        base = value[3:]
+        return [value, base]
+    return [value, f"chr{value}"]
+
+
+def resolve_contig(chrom, contigs_set):
+    for alias in chr_aliases(chrom):
+        if alias in contigs_set:
+            return alias
+    return None
+
+
+def _count_bam_qc_metrics(
+    bam: pysam.AlignmentFile,
+    chrom: str,
+    window_start: int,
+    window_end: int,
+    strand: str,
+    insertion_site: Optional[int],
+    site_tolerance_bp: int,
+):
+    metrics = {
+        "region_total_reads": 0,
+        "region_clipped_reads": 0,
+        "region_telomeric_clipped_reads": 0,
+        "site_telomeric_clipped_reads": 0,
+    }
+    contig = resolve_contig(chrom, set(bam.references))
+    if contig is None:
+        return metrics
+
+    start0 = max(0, int(window_start))
+    end0 = int(window_end)
+    if end0 <= start0:
+        return metrics
+
+    expected_clip_col = "end" if strand == "+" else "start" if strand == "-" else ""
+
+    for read in bam.fetch(contig, start0, end0):
+        if read.is_unmapped or read.is_secondary or read.is_supplementary:
+            continue
+        metrics["region_total_reads"] += 1
+
+        cigar = read.cigarstring or ""
+        if "S" not in cigar:
+            continue
+        metrics["region_clipped_reads"] += 1
+
+        sequence = read.query_sequence or ""
+        clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
+        clipped_seq = ", ".join(clipped_parts)
+        if not TELOMERE_PATTERN.search(clipped_seq):
+            continue
+        metrics["region_telomeric_clipped_reads"] += 1
+
+        if expected_clip_col == "end":
+            clip_pos = read.reference_end
+        elif expected_clip_col == "start":
+            clip_pos = read.reference_start
+        else:
+            clip_pos = None
+        if clip_pos is None:
+            continue
+        if insertion_site is not None and abs(
+            int(clip_pos) - int(insertion_site)
+        ) <= int(site_tolerance_bp):
+            metrics["site_telomeric_clipped_reads"] += 1
+
+    return metrics
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("candidate_region_file")
@@ -62,6 +166,9 @@ def predict_insertions(
     candidate_region_file: str,
     clipped_reads_file: str,
     discordant_read_file: str,
+    tumor_bam_file: str = "",
+    control_bam_file: str = "",
+    site_tolerance_bp: int = SITE_TOLERANCE_BP,
 ):
     candidate_df = read_tsv(candidate_region_file)
     candidate_rows = candidate_df.to_dict("records")
@@ -81,10 +188,30 @@ def predict_insertions(
         "sum_TTAGGG_count",
         "sum_CCCTAA_count",
         "repeat_forward",
+        "tumor_region_total_reads",
+        "tumor_region_clipped_reads",
+        "tumor_region_telomeric_clipped_reads",
+        "tumor_site_telomeric_clipped_reads",
+        "tumor_site_unique_cigars",
+        "tumor_site_pattern_consistency",
+        "tumor_site_support_fraction_of_clipped",
+        "tumor_site_support_fraction_of_total_reads",
+        "control_region_total_reads",
+        "control_region_clipped_reads",
+        "control_region_telomeric_clipped_reads",
+        "control_site_telomeric_clipped_reads",
+        "control_site_support_fraction_of_total_reads",
+        "tumor_control_support_enrichment",
+        "insertion_confidence",
     ]
     output_fields = candidate_fields + [
         f for f in new_fields if f not in candidate_fields
     ]
+
+    tumor_bam = pysam.AlignmentFile(tumor_bam_file, "rb") if tumor_bam_file else None
+    control_bam = (
+        pysam.AlignmentFile(control_bam_file, "rb") if control_bam_file else None
+    )
 
     for region in candidate_rows:
         window = region.get("window", "")
@@ -95,6 +222,30 @@ def predict_insertions(
 
         for field in new_fields:
             region[field] = ""
+
+        if (
+            window_start is not None
+            and window_end is not None
+            and tumor_bam is not None
+        ):
+            tumor_region_metrics = _count_bam_qc_metrics(
+                tumor_bam,
+                chrom,
+                window_start,
+                window_end,
+                strand,
+                insertion_site=None,
+                site_tolerance_bp=site_tolerance_bp,
+            )
+            region["tumor_region_total_reads"] = str(
+                tumor_region_metrics["region_total_reads"]
+            )
+            region["tumor_region_clipped_reads"] = str(
+                tumor_region_metrics["region_clipped_reads"]
+            )
+            region["tumor_region_telomeric_clipped_reads"] = str(
+                tumor_region_metrics["region_telomeric_clipped_reads"]
+            )
 
         clipped_window = clipped_by_window.get(window, [])
         clipped_tel = [r for r in clipped_window if is_true(r.get("part_telomere"))]
@@ -177,6 +328,119 @@ def predict_insertions(
             region["repeat_forward"] = "TTAGGG"
         elif sum_c > sum_t:
             region["repeat_forward"] = "CCCTAA"
+
+        tumor_site_reads = [
+            r
+            for r in filtered_pos
+            if abs((parse_int(r.get(clipped_col)) or -(10**9)) - insertion_site)
+            <= site_tolerance_bp
+        ]
+        tumor_site_telomeric_clipped_reads = len(tumor_site_reads)
+        tumor_site_unique_cigars = len(
+            {str(r.get("cigar", "")) for r in tumor_site_reads if r.get("cigar", "")}
+        )
+        cigar_counts = defaultdict(int)
+        for row in tumor_site_reads:
+            cigar_counts[str(row.get("cigar", ""))] += 1
+        dominant_cigar_count = max(cigar_counts.values()) if cigar_counts else 0
+        tumor_site_pattern_consistency = safe_div(
+            dominant_cigar_count, tumor_site_telomeric_clipped_reads
+        )
+
+        tumor_region_total_reads = (
+            parse_int(region.get("tumor_region_total_reads")) or 0
+        )
+        tumor_region_clipped_reads = (
+            parse_int(region.get("tumor_region_clipped_reads")) or 0
+        )
+        tumor_site_frac_clipped = safe_div(
+            tumor_site_telomeric_clipped_reads, tumor_region_clipped_reads
+        )
+        tumor_site_frac_total = safe_div(
+            tumor_site_telomeric_clipped_reads, tumor_region_total_reads
+        )
+
+        region["tumor_site_telomeric_clipped_reads"] = str(
+            tumor_site_telomeric_clipped_reads
+        )
+        region["tumor_site_unique_cigars"] = str(tumor_site_unique_cigars)
+        region["tumor_site_pattern_consistency"] = format_float(
+            tumor_site_pattern_consistency
+        )
+        region["tumor_site_support_fraction_of_clipped"] = format_float(
+            tumor_site_frac_clipped
+        )
+        region["tumor_site_support_fraction_of_total_reads"] = format_float(
+            tumor_site_frac_total
+        )
+
+        control_site_telomeric_clipped_reads = 0
+        control_region_total_reads = 0
+        if (
+            window_start is not None
+            and window_end is not None
+            and control_bam is not None
+            and strand in {"+", "-"}
+        ):
+            control_region_metrics = _count_bam_qc_metrics(
+                control_bam,
+                chrom,
+                window_start,
+                window_end,
+                strand,
+                insertion_site,
+                site_tolerance_bp,
+            )
+            control_region_total_reads = control_region_metrics["region_total_reads"]
+            control_site_telomeric_clipped_reads = control_region_metrics[
+                "site_telomeric_clipped_reads"
+            ]
+            region["control_region_total_reads"] = str(control_region_total_reads)
+            region["control_region_clipped_reads"] = str(
+                control_region_metrics["region_clipped_reads"]
+            )
+            region["control_region_telomeric_clipped_reads"] = str(
+                control_region_metrics["region_telomeric_clipped_reads"]
+            )
+            region["control_site_telomeric_clipped_reads"] = str(
+                control_site_telomeric_clipped_reads
+            )
+
+            control_site_frac_total = safe_div(
+                control_site_telomeric_clipped_reads, control_region_total_reads
+            )
+            region["control_site_support_fraction_of_total_reads"] = format_float(
+                control_site_frac_total
+            )
+
+            enrichment = safe_div(tumor_site_frac_total, control_site_frac_total + 1e-9)
+            region["tumor_control_support_enrichment"] = format_float(enrichment)
+        else:
+            enrichment = None
+
+        if (
+            tumor_site_telomeric_clipped_reads >= 3
+            and tumor_site_pattern_consistency >= 0.5
+            and tumor_site_frac_clipped >= 0.2
+            and (
+                enrichment is None
+                or (enrichment >= 2.0 and control_site_telomeric_clipped_reads <= 1)
+            )
+        ):
+            region["insertion_confidence"] = "high"
+        elif (
+            tumor_site_telomeric_clipped_reads >= 2
+            and tumor_site_pattern_consistency >= 0.35
+            and tumor_site_frac_clipped >= 0.1
+        ):
+            region["insertion_confidence"] = "medium"
+        else:
+            region["insertion_confidence"] = "low"
+
+    if tumor_bam is not None:
+        tumor_bam.close()
+    if control_bam is not None:
+        control_bam.close()
 
     output_df = pd.DataFrame(candidate_rows)
     return output_df, output_fields
