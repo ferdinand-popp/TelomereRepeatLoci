@@ -23,6 +23,7 @@ bam_suffix: _merged.mdup.bam
 # output directories
 #------------------------------------------------
 telomerehunter_dir: <OUTPUT_PATH_FOR_TELOMEREHUNTER_RESULTS>/TelomereHunterResults
+skip_telomerehunter: true
 
 telomereinsertion_dir: <OUTPUT_PATH_FOR_TELOMEREREPEATLOCI_RESULTS>/TelomereRepeatLoci
 

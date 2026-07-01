@@ -526,8 +526,8 @@ def get_sequence( read, bamfile, clipped_read_dict=None ):
     read_original = [ read for read in read_original if int(read.split("\t")[1])<2000 ]
 
     if len(read_original)!=1:
-      print "multiple primary alignments were found for read " + read_name
-      print read_original
+      print("multiple primary alignments were found for read " + read_name)
+      print(read_original)
 
     read_original = read_original[0].split('\t') 
 
