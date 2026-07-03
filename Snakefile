@@ -3,19 +3,54 @@ Author: Lina Sieverling
 Affiliation: DKFZ Heidelberg
 Aim: A Snakemake workflow to find telomere insertions
 Date: Thu Aug 18 17:46:12 CEST 2016
-Run: snakemake -s <Snakefile> --configfile <config.yaml> 
-Run Example: 
+Run: snakemake -s <Snakefile> --configfile <config.yaml> --cores <N>
 
-source activate telomereEnv
-snakemake -s /home/sieverli/Code/telomere_insertion_analysis/snakemake_telomere_insertions/Snakefile --configfile /abi/data/sieverling/projects/NB_Telomeres/src/config_snakemake_telomere_insertions.ya[...]
-
+Note: current Snakemake requires --cores to be set explicitly for local
+execution, e.g. --cores 4 or --cores all.
 """
+
 #---------------------------------------------------------------------------------------
-# get PIDs
+# setup: imports, logging, config validation
 #---------------------------------------------------------------------------------------
-from os import listdir
-import csv
+import logging
 import os
+
+import pandas as pd
+
+logger = logging.getLogger("telomere_insertions")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger.addHandler(_handler)
+# Don't rely on / interfere with the root logger's handlers (Snakemake configures
+# its own before the Snakefile is parsed, which can silently swallow messages
+# from a plain logging.basicConfig() call since basicConfig() is a no-op once
+# the root logger already has handlers).
+logger.propagate = False
+
+REQUIRED_CONFIG_KEYS = [
+    "samples",
+    "pids",
+    "telomerehunter_dir",
+    "telomereinsertion_dir",
+    "src_dir",
+    "R_function_file",
+    "blacklist",
+    "sleep_sec_limit",
+    "tumor_discordant_read_lower_limit",
+    "control_discordant_read_upper_limit",
+]
+
+missing_config_keys = [key for key in REQUIRED_CONFIG_KEYS if key not in config]
+if missing_config_keys:
+    raise ValueError(
+        "Missing required config key(s): " + ", ".join(missing_config_keys)
+        + ". Please check your --configfile."
+    )
+
+if len(config["samples"]) not in (1, 2):
+    raise ValueError('config["samples"] must contain either 1 (tumor only) or 2 (tumor + control) entries.')
 
 
 def _is_enabled_config_path(path_value):
@@ -54,43 +89,88 @@ def _mem_to_mb(mem_str):
     return int(mem_str)
 
 
+#---------------------------------------------------------------------------------------
+# load bam paths (either from an explicit TSV, or derived from results_per_pid_dir)
+#---------------------------------------------------------------------------------------
+
 def _load_bam_paths_from_tsv(tsv_file, sample_names):
-    """Read pid -> {sample_name: bam_path} from a TSV.
+    """Read pid -> {sample_name: bam_path} from a TSV using pandas.
 
     The pid column is taken positionally (always the first column),
     regardless of what its header is actually called (e.g. "pid",
     "patient_id", "sample_id", ...).
 
-    The bam path columns are expected to be named "path_to_<sample>_bam",
-    e.g. for sample_names = ["tumor", "control"] the required columns are
+    The alignment bam path columns are required and expected to be named
+    "path_to_<sample>_bam", e.g. for sample_names = ["tumor", "control"]:
     "path_to_tumor_bam" and "path_to_control_bam".
+
+    The TelomereHunter intratelomeric bam path columns are optional and
+    expected to be named "path_to_<sample>_intratelomeric_bam". If present,
+    these are used (when skip_telomerehunter=true) instead of the default
+    TelomereHunter output path pattern.
+
+    Returns a tuple (bam_paths, intratelomeric_bam_paths), each a
+    pid -> {sample_name: path} dict. intratelomeric_bam_paths only contains
+    entries for the sample columns that were actually present in the TSV.
     """
-    bam_paths = {}
+    # Auto-detect the delimiter (tab or comma) rather than assuming tab, since
+    # files named/passed as "tsv" sometimes turn out to actually be comma-separated.
+    df = pd.read_csv(tsv_file, sep=None, engine="python", dtype=str, keep_default_na=False)
+    if df.columns.empty:
+        raise ValueError(f"bam_files_tsv has no header or is empty: {tsv_file}")
+    df.columns = [c.strip() for c in df.columns]
 
-    with open(tsv_file, "r") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        if not reader.fieldnames:
-            raise ValueError("bam_files_tsv has no header or is empty: " + tsv_file)
+    if len(df.columns) == 1:
+        raise ValueError(
+            f"bam_files_tsv only parsed a single column ({df.columns[0]!r}) from {tsv_file}. "
+            "This usually means the file's delimiter wasn't detected correctly — "
+            "double check it's actually tab- or comma-separated."
+        )
 
-        # First column holds the pid, whatever its header is named.
-        pid_column = reader.fieldnames[0]
+    # First column holds the pid, whatever its header is named.
+    pid_column = df.columns[0]
 
-        bam_columns = {sample_name: f"path_to_{sample_name}_bam" for sample_name in sample_names}
-        missing_columns = [col for col in bam_columns.values() if col not in reader.fieldnames]
-        if missing_columns:
-            raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
+    bam_columns = {sample_name: f"path_to_{sample_name}_bam" for sample_name in sample_names}
+    missing_columns = [col for col in bam_columns.values() if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"bam_files_tsv is missing required columns: {', '.join(missing_columns)}")
 
-        # start=2 so the first data row (after header) is reported as line 2
-        for row_number, row in enumerate(reader, start=2):
-            pid = row[pid_column].strip()
-            if pid == "":
-                print(f"Skipping row {row_number} with empty pid in bam_files_tsv: {tsv_file}")
-                continue
-            bam_paths[pid] = {}
-            for sample_name, bam_column in bam_columns.items():
-                bam_paths[pid][sample_name] = row[bam_column].strip()
+    # Optional: only include the intratelomeric-bam columns that actually exist in the TSV.
+    th_bam_columns_all = {sample_name: f"path_to_{sample_name}_intratelomeric_bam" for sample_name in sample_names}
+    th_bam_columns = {s: c for s, c in th_bam_columns_all.items() if c in df.columns}
 
-    return bam_paths
+    for col in [pid_column, *bam_columns.values(), *th_bam_columns.values()]:
+        df[col] = df[col].str.strip()
+
+    empty_pid_mask = df[pid_column] == ""
+    for row_number in df.index[empty_pid_mask]:
+        # +2: 1 to account for the header row, 1 to switch to 1-based line numbers
+        logger.warning(f"Skipping row {row_number + 2} with empty pid in bam_files_tsv: {tsv_file}")
+    df = df[~empty_pid_mask]
+
+    duplicate_pids = sorted(df[pid_column][df[pid_column].duplicated()].unique())
+    if duplicate_pids:
+        raise ValueError(f"bam_files_tsv contains duplicate pid(s): {', '.join(duplicate_pids)} in {tsv_file}")
+
+    df = df.set_index(pid_column)
+
+    bam_paths = {
+        pid: {sample_name: row[bam_col] for sample_name, bam_col in bam_columns.items()}
+        for pid, row in df[list(bam_columns.values())].iterrows()
+    }
+
+    th_bam_paths = {}
+    if th_bam_columns:
+        th_bam_paths = {
+            pid: {sample_name: row[bam_col] for sample_name, bam_col in th_bam_columns.items()}
+            for pid, row in df[list(th_bam_columns.values())].iterrows()
+        }
+        logger.info(
+            "bam_files_tsv provides TelomereHunter intratelomeric bam paths for: "
+            + ", ".join(sorted(th_bam_columns.values()))
+        )
+
+    return bam_paths, th_bam_paths
 
 
 explicit_bam_files_tsv = config.get("bam_files_tsv", "no_file")
@@ -102,9 +182,10 @@ use_explicit_bam_paths = _is_enabled_config_path(explicit_bam_files_tsv)
 skip_telomerehunter = _parse_bool_config(config.get("skip_telomerehunter", False), default=False)
 
 if use_explicit_bam_paths:
-    bam_files_by_pid = _load_bam_paths_from_tsv(explicit_bam_files_tsv, config["samples"])
+    bam_files_by_pid, th_bam_files_by_pid = _load_bam_paths_from_tsv(explicit_bam_files_tsv, config["samples"])
 else:
     bam_files_by_pid = {}
+    th_bam_files_by_pid = {}
 
 TELOMEREHUNTER_DIR = config["telomerehunter_dir"]
 TELOMEREINSERTION_DIR = config["telomereinsertion_dir"]
@@ -126,57 +207,89 @@ def get_alignment_bam(pid_name, sample_name):
 
 
 def get_telomerehunter_intratelomeric_bam(pid_name, sample_name):
+    # Only honor a TSV-supplied custom path when we're actually trusting
+    # pre-existing TelomereHunter outputs (skip_telomerehunter=true).
+    # Otherwise the pipeline itself will always write to the standard
+    # TelomereHunter output location below, regardless of what the TSV says.
+    if skip_telomerehunter and use_explicit_bam_paths:
+        custom_path = th_bam_files_by_pid.get(pid_name, {}).get(sample_name, "")
+        if custom_path:
+            return custom_path
     return f"{TELOMEREHUNTER_DIR}/{pid_name}/{sample_name}_TelomerCnt_{pid_name}/{pid_name}_filtered_intratelomeric.bam"
 
 
 if config["pids"] == "all":
     if use_explicit_bam_paths:
-        pids = sorted(bam_files_by_pid.keys())
+        pids_candidates = sorted(bam_files_by_pid.keys())
     else:
-        pids = sorted([i for i in listdir(config["results_per_pid_dir"]) if not i.startswith('.')])
+        pids_candidates = sorted(p for p in os.listdir(config["results_per_pid_dir"]) if not p.startswith('.'))
 else:
-    pids = config["pids"].split(' ')
+    pids_candidates = config["pids"].split(' ')
 
 
 #---------------------------------------------------------------------------------------
-# remove PIDs without bam files
+# remove PIDs without (existing) bam files
 #---------------------------------------------------------------------------------------
 
-pids_remove = []
+def _bam_status_table(pids_list, sample_names):
+    """Tidy pid/sample table with the resolved bam path and whether it exists on disk."""
+    records = []
+    for pid_name in pids_list:
+        for sample_name in sample_names:
+            bam_file = None
+            if use_explicit_bam_paths:
+                if pid_name not in bam_files_by_pid:
+                    records.append((pid_name, sample_name, None))
+                    continue
+                bam_file = bam_files_by_pid[pid_name].get(sample_name, "")
+                if bam_file == "":
+                    records.append((pid_name, sample_name, None))
+                    continue
+            else:
+                bam_file = get_alignment_bam(pid_name, sample_name)
+            records.append((pid_name, sample_name, bam_file))
 
-for pid_name in pids:
-    for sample_name in SAMPLES:
-        bam_file = None
-        if use_explicit_bam_paths:
-            if pid_name not in bam_files_by_pid:
-                print(f"{pid_name}: no BAM entry found in bam_files_tsv, skipping this pid!")
-                pids_remove.append(pid_name)
-                break
-            bam_file = bam_files_by_pid[pid_name].get(sample_name, "")
-            if bam_file == "":
-                print(f"{pid_name}: BAM path for {sample_name} is missing in bam_files_tsv, skipping this pid!")
-                pids_remove.append(pid_name)
-                break
-        else:
-            bam_file = get_alignment_bam(pid_name, sample_name)
+    status = pd.DataFrame(records, columns=["pid", "sample", "bam_file"])
+    status["exists"] = status["bam_file"].apply(lambda p: p is not None and os.path.exists(p))
+    return status
 
-        if not os.path.exists(bam_file):
-            print(f"{pid_name}: alignment bam file for {sample_name} sample is missing, skipping this pid!")
-            pids_remove.append(pid_name)
-            break
 
-# Extra validation when skipping TelomereHunter:
-# ensure expected TelomereHunter outputs are present
+bam_status = _bam_status_table(pids_candidates, SAMPLES)
+for _, row in bam_status[~bam_status["exists"]].iterrows():
+    if row["bam_file"] is None:
+        logger.warning(f"{row['pid']}: no BAM entry found for {row['sample']} in bam_files_tsv, skipping this pid!")
+    else:
+        logger.warning(
+            f"{row['pid']}: alignment bam file for {row['sample']} sample is missing "
+            f"({row['bam_file']}), skipping this pid!"
+        )
+
+pids_with_missing_bam = set(bam_status.loc[~bam_status["exists"], "pid"])
+pids = [p for p in pids_candidates if p not in pids_with_missing_bam]
+
+# Extra validation when skipping TelomereHunter: ensure expected outputs are present
 if skip_telomerehunter:
-    for pid_name in pids:
-        for sample_name in SAMPLES:
-            th_bam = get_telomerehunter_intratelomeric_bam(pid_name, sample_name)
-            if not os.path.exists(th_bam):
-                print(f"{pid_name}: TelomereHunter output missing for {sample_name} ({th_bam}), skipping this pid!")
-                pids_remove.append(pid_name)
-                break
+    th_records = [
+        (pid_name, sample_name, get_telomerehunter_intratelomeric_bam(pid_name, sample_name))
+        for pid_name in pids
+        for sample_name in SAMPLES
+    ]
+    th_status = pd.DataFrame(th_records, columns=["pid", "sample", "bam_file"])
+    th_status["exists"] = th_status["bam_file"].apply(os.path.exists)
+    for _, row in th_status[~th_status["exists"]].iterrows():
+        logger.warning(
+            f"{row['pid']}: TelomereHunter output missing for {row['sample']} "
+            f"({row['bam_file']}), skipping this pid!"
+        )
+    pids_with_missing_th = set(th_status.loc[~th_status["exists"], "pid"])
+    pids = [p for p in pids if p not in pids_with_missing_th]
 
-pids = [x for x in pids if x not in pids_remove]
+if not pids:
+    raise ValueError(
+        "No PIDs remain after validation — see the WARNING messages above for why each "
+        "PID was dropped (missing alignment bam, missing TelomereHunter output, etc.), "
+        "and check your config / bam_files_tsv paths."
+    )
 
 
 #------------------------------------------------------------------
@@ -192,8 +305,8 @@ localrules: all
 
 rule all:
     input:
-        expand(TELOMEREHUNTER_DIR + '/{pid}/tumor_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids),
-        expand(TELOMEREHUNTER_DIR + '/{pid}/control_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids_control),
+        [get_telomerehunter_intratelomeric_bam(pid, "tumor") for pid in pids],
+        [get_telomerehunter_intratelomeric_bam(pid, "control") for pid in pids_control],
         expand(TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv', pid=pids),
         expand(TELOMEREINSERTION_DIR + '/plots/zoomed_in/{pid}_done.txt', pid=pids)
 
@@ -245,7 +358,7 @@ if not skip_telomerehunter:
             "module load R/3.4.2; "
             "time telomerehunter -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
 else:
-    print("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter outputs.")
+    logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter outputs.")
 
 
 #------------------------------------------------------------------
@@ -254,7 +367,7 @@ else:
 
 rule find_discordant_reads:
     input:
-        TELOMEREHUNTER_DIR + '/{pid}/{sample}_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
+        lambda wildcards: get_telomerehunter_intratelomeric_bam(wildcards.pid, wildcards.sample)
     output:
         TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads.tsv'
     resources:
@@ -315,7 +428,7 @@ elif len(SAMPLES) == 1:
     control_input = "NULL"
 
 if not os.path.exists(config["blacklist"]) and not paired_t_c_flag:
-    print("Please provide paired tumor-control samples or a blacklist, otherwise no proper filtering for false positives is possible!")
+    logger.warning("Please provide paired tumor-control samples or a blacklist, otherwise no proper filtering for false positives is possible!")
 
 rule count_discordant_reads:
     input:

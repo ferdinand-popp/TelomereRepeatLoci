@@ -28,6 +28,7 @@ micromamba create -y -n "${ENV_NAME}" -c conda-forge -c bioconda \
     bioconductor-bsgenome.hsapiens.ucsc.hg19 \
     pysam \
     matplotlib \
+    pandas \
     snakemake \
     samtools
 
