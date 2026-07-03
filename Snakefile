@@ -354,9 +354,8 @@ if not skip_telomerehunter:
             extra=telomerehunter_shell_extra
         shell:
             "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-            "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-            "module load R/3.4.2; "
-            "time telomerehunter -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
+            "set +u; module load Micromamba/2.0.2-0; module load R/3.4.2; set -u; "
+            "time micromamba run -n telomereEnv telomerehunter -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
 else:
     logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter outputs.")
 
@@ -379,9 +378,8 @@ rule find_discordant_reads:
         src_dir=SRC_DIR
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-        "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-        "python {params.src_dir}/find_discordant_reads.py -i {input} -o {output}; "
-        "set +u; micromamba deactivate; set -u"
+        "set +u; module load Micromamba/2.0.2-0; set -u; "
+        "micromamba run -n telomereEnv python {params.src_dir}/find_discordant_reads.py -i {input} -o {output}"
 
 
 #------------------------------------------------------------------
@@ -403,9 +401,8 @@ rule add_mate_mapq:
         src_dir=SRC_DIR
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-        "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-        "python {params.src_dir}/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output}; "
-        "set +u; micromamba deactivate; set -u"
+        "set +u; module load Micromamba/2.0.2-0; set -u; "
+        "micromamba run -n telomereEnv python {params.src_dir}/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output}"
 
 
 #------------------------------------------------------------------
@@ -419,12 +416,12 @@ if len(SAMPLES) == 2:
         TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
         TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[1] + '_discordant_reads_filtered_with_mapq.tsv'
     ]
-    tumor_input = "{input[0]}"
-    control_input = "{input[1]}"
+    tumor_input = input_list[0]
+    control_input = input_list[1]
     paired_t_c_flag = True
 elif len(SAMPLES) == 1:
     input_list = [TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv']
-    tumor_input = "{input[0]}"
+    tumor_input = input_list[0]
     control_input = "NULL"
 
 if not os.path.exists(config["blacklist"]) and not paired_t_c_flag:
@@ -446,7 +443,7 @@ rule count_discordant_reads:
         tumor=tumor_input,
         control=control_input
     shell:
-        "R-3.2.2 --no-save --slave --args -t {params.tumor} -c {params.control} -b {params.blacklist} "
+        "R --no-save --slave --args -t {params.tumor} -c {params.control} -b {params.blacklist} "
         "-o {output.windowTable} -f {params.r_function_file} < {params.src_dir}/count_discordant_reads.R"
 
 
@@ -467,11 +464,12 @@ rule get_candidate_regions:
         r_function_file=R_FUNCTION_FILE,
         src_dir=SRC_DIR,
         tumor_discordant_read_lower_limit=config["tumor_discordant_read_lower_limit"],
-        control_discordant_read_upper_limit=config["control_discordant_read_upper_limit"]
+        control_discordant_read_upper_limit=config["control_discordant_read_upper_limit"],
+        consider_blacklist="True" if _is_enabled_config_path(config.get("blacklist")) else "False"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.windowTable} {output.candidateRegions} "
+        "R --no-save --slave --args {input.windowTable} {output.candidateRegions} "
         "{params.tumor_discordant_read_lower_limit} {params.control_discordant_read_upper_limit} "
-        "{params.r_function_file} < {params.src_dir}/get_candidate_regions.R"
+        "{params.consider_blacklist} {params.r_function_file} < {params.src_dir}/get_candidate_regions.R"
 
 
 #------------------------------------------------------------------
@@ -497,7 +495,7 @@ rule find_fusion_reads:
         r_function_file=R_FUNCTION_FILE,
         src_dir=SRC_DIR
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
+        "R --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
         "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R"
 
 
@@ -517,7 +515,7 @@ rule predict_insertion_sites:
         src_dir=SRC_DIR
     message: "--- {wildcards.pid}: predict insertion sites ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
+        "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
         "{output} {params.r_function_file} < {params.src_dir}/predict_insertion_sites.R"
 
 
@@ -540,7 +538,7 @@ rule get_consensus:
         src_dir=SRC_DIR
     message: "--- {wildcards.pid}: get consensus ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} "
+        "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} "
         "{params.r_function_file} < {params.src_dir}/get_consensus.R"
 
 
@@ -561,7 +559,7 @@ rule make_bed_for_visualization:
         jobname="{pid}_make_bed",
         src_dir=SRC_DIR
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} "
+        "R --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} "
         "{wildcards.pid} < {params.src_dir}/make_bed_for_visualization.R"
 
 
@@ -589,8 +587,8 @@ if len(SAMPLES) == 2:
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
-            set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u
-            python {params.src_dir}/visualize_telomere_insertions.py \
+            set +u; module load Micromamba/2.0.2-0; set -u
+            micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --control {input.control_bam} \
                 --tumor {input.tumor_bam} \
                 --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
@@ -625,12 +623,12 @@ elif len(SAMPLES) == 1:
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
-            set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u
-            python {params.src_dir}/visualize_telomere_insertions.py \
+            set +u; module load Micromamba/2.0.2-0; set -u
+            micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --tumor {input.tumor_bam} \
                 --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
                 --bed {input.bed} \
-                --samtoolsbin samtools-1.3.1 \
+                --samtoolsbin samtools \
                 --colored_reads_tumor {input.discordant_reads_tumor} \
                 --clipped_reads_tumor {input.clipped_reads_tumor} \
                 --prefix {params.prefix} \

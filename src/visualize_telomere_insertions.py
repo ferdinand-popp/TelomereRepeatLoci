@@ -32,6 +32,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plot
 from matplotlib import gridspec
 import numpy as np
+import pysam
 
 
 argument_parser = argparse.ArgumentParser(
@@ -63,6 +64,7 @@ argument_parser.add_argument('--clipped_reads_control', type=str,
 argument_parser.add_argument('--outfile', type=str,
     default=None, help='path to dummy output file (needed for snakemake)')
 parsed_arguments = argument_parser.parse_args()
+print(parsed_arguments.clipped_reads_tumor)
 
 
 basepair_colors_axis = { 'A':"#009600", 'C':"#3030fe", 'G':"#d17105", 'T':"#ff0000", 'N':"#00ffff" }
@@ -332,29 +334,27 @@ def plot_cigars( cigars, sequences, reverses, read_names, read_flags, colored_re
   ax.set_ylim( ymin=( 1 - len([ l for l in right_limits if l > 0 ]) ), ymax=1 )
   ax.set_yticks([])
 
+def get_samtools_reads( bam_file, region_chrom, region_left, region_right ):
+  with pysam.AlignmentFile( bam_file, "rb" ) as bam:
+      reads = [
+          read for read in bam.fetch( region_chrom, region_left, region_right )
+          if not read.is_duplicate  # equivalent to samtools -F 1024
+      ]
+  return reads
 
 
 def plot_region( region_chrom, region_center, region_left, region_right, plot_title ):
-
   region_string = "%s:%i-%i" % ( region_chrom, region_left, region_right )
 
-
   if parsed_arguments.control is None:
-    samtools_reads1 = []
+      samtools_reads1 = []
   else:
-    samtools_call1   = ( parsed_arguments.samtoolsbin, "view", "-F", "1024", parsed_arguments.control, region_string )
-    samtools_output1 = subprocess.check_output( samtools_call1 )
-    samtools_output1 = [ line.split('\t') for line in samtools_output1.split('\n') ]
-    samtools_reads1  = [ line for line in samtools_output1 if len(line) > 5 ]
+      samtools_reads1 = get_samtools_reads( parsed_arguments.control, region_chrom, region_left, region_right )
 
-  samtools_call2   = ( parsed_arguments.samtoolsbin, "view", "-F", "1024", parsed_arguments.tumor, region_string )
-  samtools_output2 = subprocess.check_output( samtools_call2 )
-  samtools_output2 = [ line.split('\t') for line in samtools_output2.split('\n') ]
-  samtools_reads2  = [ line for line in samtools_output2 if len(line) > 5 ]
+  samtools_reads2 = get_samtools_reads( parsed_arguments.tumor, region_chrom, region_left, region_right )
 
   annotations = get_annotations( region_string )
-
-  if len(samtools_reads1) < 3000 and len(samtools_reads2) < 3000: 
+  if len(samtools_reads1) < 3000 and len(samtools_reads2) < 3000:
 
   # print( "region %s annotations: " % region_string, annotations )
 
