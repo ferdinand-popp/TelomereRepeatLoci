@@ -10,8 +10,6 @@ source activate telomereEnv
 snakemake -s /home/sieverli/Code/telomere_insertion_analysis/snakemake_telomere_insertions/Snakefile --configfile /abi/data/sieverling/projects/NB_Telomeres/src/config_snakemake_telomere_insertions.ya[...]
 
 """
-
-
 #---------------------------------------------------------------------------------------
 # get PIDs
 #---------------------------------------------------------------------------------------
@@ -37,28 +35,59 @@ def _parse_bool_config(value, default=False):
     return default
 
 
+def _hms_to_minutes(hms):
+    """Convert an 'HH:MM:SS' walltime string into an integer number of minutes
+    (rounded up), for use with the modern `resources: runtime=...` directive."""
+    hours, minutes, seconds = (int(x) for x in hms.split(":"))
+    total_minutes = hours * 60 + minutes + (1 if seconds else 0)
+    return max(total_minutes, 1)
+
+
+def _mem_to_mb(mem_str):
+    """Convert an old-style '150m' / '1g' memory string into an integer number
+    of megabytes, for use with the modern `resources: mem_mb=...` directive."""
+    mem_str = str(mem_str).strip().lower()
+    if mem_str.endswith("g"):
+        return int(float(mem_str[:-1]) * 1024)
+    if mem_str.endswith("m"):
+        return int(float(mem_str[:-1]))
+    return int(mem_str)
+
+
 def _load_bam_paths_from_tsv(tsv_file, sample_names):
+    """Read pid -> {sample_name: bam_path} from a TSV.
+
+    The pid column is taken positionally (always the first column),
+    regardless of what its header is actually called (e.g. "pid",
+    "patient_id", "sample_id", ...).
+
+    The bam path columns are expected to be named "path_to_<sample>_bam",
+    e.g. for sample_names = ["tumor", "control"] the required columns are
+    "path_to_tumor_bam" and "path_to_control_bam".
+    """
     bam_paths = {}
-    required_columns = ["pid"] + [sample_name + "_bam" for sample_name in sample_names]
 
     with open(tsv_file, "r") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         if not reader.fieldnames:
             raise ValueError("bam_files_tsv has no header or is empty: " + tsv_file)
 
-        missing_columns = [col for col in required_columns if col not in reader.fieldnames]
+        # First column holds the pid, whatever its header is named.
+        pid_column = reader.fieldnames[0]
+
+        bam_columns = {sample_name: f"path_to_{sample_name}_bam" for sample_name in sample_names}
+        missing_columns = [col for col in bam_columns.values() if col not in reader.fieldnames]
         if missing_columns:
             raise ValueError("bam_files_tsv is missing required columns: " + ", ".join(missing_columns))
 
         # start=2 so the first data row (after header) is reported as line 2
         for row_number, row in enumerate(reader, start=2):
-            pid = row["pid"].strip()
+            pid = row[pid_column].strip()
             if pid == "":
-                print("Skipping row " + str(row_number) + " with empty pid in bam_files_tsv: " + tsv_file)
+                print(f"Skipping row {row_number} with empty pid in bam_files_tsv: {tsv_file}")
                 continue
             bam_paths[pid] = {}
-            for sample_name in sample_names:
-                bam_column = sample_name + "_bam"
+            for sample_name, bam_column in bam_columns.items():
                 bam_paths[pid][sample_name] = row[bam_column].strip()
 
     return bam_paths
@@ -67,7 +96,7 @@ def _load_bam_paths_from_tsv(tsv_file, sample_names):
 explicit_bam_files_tsv = config.get("bam_files_tsv", "no_file")
 use_explicit_bam_paths = _is_enabled_config_path(explicit_bam_files_tsv)
 
-# New config switch:
+# Config switch:
 #   skip_telomerehunter: true/false
 # If true, workflow will assume TelomereHunter outputs already exist and will not run run_telomerehunter.
 skip_telomerehunter = _parse_bool_config(config.get("skip_telomerehunter", False), default=False)
@@ -77,15 +106,27 @@ if use_explicit_bam_paths:
 else:
     bam_files_by_pid = {}
 
+TELOMEREHUNTER_DIR = config["telomerehunter_dir"]
+TELOMEREINSERTION_DIR = config["telomereinsertion_dir"]
+SRC_DIR = config["src_dir"]
+R_FUNCTION_FILE = config["R_function_file"]
+SAMPLES = config["samples"]
+
+# Modern Snakemake is stricter about wildcard resolution; constraining
+# {pid} and {sample} avoids ambiguous-wildcard errors in the DAG.
+wildcard_constraints:
+    pid=r"[^/]+",
+    sample="|".join(SAMPLES)
+
 
 def get_alignment_bam(pid_name, sample_name):
     if use_explicit_bam_paths:
         return bam_files_by_pid[pid_name][sample_name]
-    return config["results_per_pid_dir"] + "/" + pid_name + "/alignment/" + sample_name + "_" + pid_name + config["bam_suffix"]
+    return f'{config["results_per_pid_dir"]}/{pid_name}/alignment/{sample_name}_{pid_name}{config["bam_suffix"]}'
 
 
 def get_telomerehunter_intratelomeric_bam(pid_name, sample_name):
-    return config["telomerehunter_dir"] + "/" + pid_name + "/" + sample_name + "_TelomerCnt_" + pid_name + "/" + pid_name + "_filtered_intratelomeric.bam"
+    return f"{TELOMEREHUNTER_DIR}/{pid_name}/{sample_name}_TelomerCnt_{pid_name}/{pid_name}_filtered_intratelomeric.bam"
 
 
 if config["pids"] == "all":
@@ -104,23 +145,23 @@ else:
 pids_remove = []
 
 for pid_name in pids:
-    for sample_name in config["samples"]:
+    for sample_name in SAMPLES:
         bam_file = None
         if use_explicit_bam_paths:
             if pid_name not in bam_files_by_pid:
-                print(pid_name + ": no BAM entry found in bam_files_tsv, skipping this pid!")
+                print(f"{pid_name}: no BAM entry found in bam_files_tsv, skipping this pid!")
                 pids_remove.append(pid_name)
                 break
             bam_file = bam_files_by_pid[pid_name].get(sample_name, "")
             if bam_file == "":
-                print(pid_name + ": BAM path for " + sample_name + " is missing in bam_files_tsv, skipping this pid!")
+                print(f"{pid_name}: BAM path for {sample_name} is missing in bam_files_tsv, skipping this pid!")
                 pids_remove.append(pid_name)
                 break
         else:
             bam_file = get_alignment_bam(pid_name, sample_name)
 
         if not os.path.exists(bam_file):
-            print(pid_name + ": alignment bam file for " + sample_name + " sample is missing, skipping this pid!")
+            print(f"{pid_name}: alignment bam file for {sample_name} sample is missing, skipping this pid!")
             pids_remove.append(pid_name)
             break
 
@@ -128,59 +169,60 @@ for pid_name in pids:
 # ensure expected TelomereHunter outputs are present
 if skip_telomerehunter:
     for pid_name in pids:
-        for sample_name in config["samples"]:
+        for sample_name in SAMPLES:
             th_bam = get_telomerehunter_intratelomeric_bam(pid_name, sample_name)
             if not os.path.exists(th_bam):
-                print(pid_name + ": TelomereHunter output missing for " + sample_name + " (" + th_bam + "), skipping this pid!")
+                print(f"{pid_name}: TelomereHunter output missing for {sample_name} ({th_bam}), skipping this pid!")
                 pids_remove.append(pid_name)
                 break
-
 
 pids = [x for x in pids if x not in pids_remove]
 
 
 #------------------------------------------------------------------
-# rule all 
+# rule all
 #------------------------------------------------------------------
 
-if len(config["samples"]) == 2:
+if len(SAMPLES) == 2:
     pids_control = pids
 else:
     pids_control = []
 
+localrules: all
+
 rule all:
     input:
-        expand(config["telomerehunter_dir"] + '/{pid}/tumor_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids),
-        expand(config["telomerehunter_dir"] + '/{pid}/control_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids_control),
-        expand(config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv', pid=pids),
-        expand(config["telomereinsertion_dir"] + '/plots/zoomed_in/{pid}_done.txt', pid=pids)
+        expand(TELOMEREHUNTER_DIR + '/{pid}/tumor_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids),
+        expand(TELOMEREHUNTER_DIR + '/{pid}/control_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam', pid=pids_control),
+        expand(TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv', pid=pids),
+        expand(TELOMEREINSERTION_DIR + '/plots/zoomed_in/{pid}_done.txt', pid=pids)
 
 
 #------------------------------------------------------------------
 # run telomerehunter
 #------------------------------------------------------------------
 
-if len(config["samples"]) == 2:
+if len(SAMPLES) == 2:
     input_list = [
-        lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
-        lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][1])
+        lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
+        lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[1])
     ]
     output_list = [
-        config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
-        config["telomerehunter_dir"] + '/{pid}/' + config["samples"][1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
+        TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
+        TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
     ]
-    shell_command_addition = "-ibc {input[1]} -pl "
-    node_addition = ",nodes=1:ppn=2"
-elif len(config["samples"]) == 1:
+    telomerehunter_shell_extra = "-ibc {input[1]} -pl "
+    telomerehunter_threads = 2
+elif len(SAMPLES) == 1:
     input_list = [
-        lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
-        lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])
+        lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
+        lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0])
     ]
     output_list = [
-        config["telomerehunter_dir"] + '/{pid}/' + config["samples"][0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
+        TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
     ]
-    shell_command_addition = ""
-    node_addition = ""
+    telomerehunter_shell_extra = ""
+    telomerehunter_threads = 1
 
 if not skip_telomerehunter:
     rule run_telomerehunter:
@@ -188,17 +230,20 @@ if not skip_telomerehunter:
             input_list
         output:
             output_list
+        threads: telomerehunter_threads
+        resources:
+            mem_mb=_mem_to_mb("150m"),
+            runtime=_hms_to_minutes("24:00:00")
         params:
-            walltime="24:00:00" + node_addition,
-            mem="150m",
             jobname="{pid}_telomerehunter",
-            sleep_sec_limit=config["sleep_sec_limit"]
-        version: "1.0"
+            sleep_sec_limit=config["sleep_sec_limit"],
+            telomerehunter_dir=TELOMEREHUNTER_DIR,
+            extra=telomerehunter_shell_extra
         shell:
             "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
             "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
             "module load R/3.4.2; "
-            "time telomerehunter -p {wildcards.pid} -o " + config["telomerehunter_dir"] + " -ibt {input[0]} " + shell_command_addition + "-pff all"
+            "time telomerehunter -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
 else:
     print("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter outputs.")
 
@@ -209,20 +254,21 @@ else:
 
 rule find_discordant_reads:
     input:
-        config["telomerehunter_dir"] + '/{pid}/{sample}_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
+        TELOMEREHUNTER_DIR + '/{pid}/{sample}_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
     output:
-        config["telomereinsertion_dir"] + '/tables/{pid}_{sample}_discordant_reads.tsv'
+        TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads.tsv'
+    resources:
+        mem_mb=_mem_to_mb("150m"),
+        runtime=_hms_to_minutes("0:59:00")
     params:
-        walltime="0:59:00",
-        mem="150m",
         jobname="{pid}_find_discordant_reads_{sample}",
-        sleep_sec_limit=config["sleep_sec_limit"]
-    version: "1.0"
+        sleep_sec_limit=config["sleep_sec_limit"],
+        src_dir=SRC_DIR
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
         "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-        "python " + config["src_dir"] + "/find_discordant_reads.py -i {input} -o {output}; "
-        "set +u; source deactivate; set -u"
+        "python {params.src_dir}/find_discordant_reads.py -i {input} -o {output}; "
+        "set +u; micromamba deactivate; set -u"
 
 
 #------------------------------------------------------------------
@@ -231,21 +277,22 @@ rule find_discordant_reads:
 
 rule add_mate_mapq:
     input:
-        discordant_reads=config["telomereinsertion_dir"] + '/tables/{pid}_{sample}_discordant_reads.tsv',
+        discordant_reads=TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads.tsv',
         bam=lambda wildcards: get_alignment_bam(wildcards.pid, wildcards.sample)
     output:
-        config["telomereinsertion_dir"] + '/tables/{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv'
+        TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv'
+    resources:
+        mem_mb=_mem_to_mb("100m"),
+        runtime=_hms_to_minutes("50:00:00")
     params:
-        walltime="50:00:00",
-        mem="100m",
         jobname="{pid}_add_mate_mapq_{sample}",
-        sleep_sec_limit=config["sleep_sec_limit"]
-    version: "1.0"
+        sleep_sec_limit=config["sleep_sec_limit"],
+        src_dir=SRC_DIR
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
         "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-        "python " + config["src_dir"] + "/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output}; "
-        "set +u; source deactivate; set -u"
+        "python {params.src_dir}/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output}; "
+        "set +u; micromamba deactivate; set -u"
 
 
 #------------------------------------------------------------------
@@ -254,16 +301,16 @@ rule add_mate_mapq:
 
 paired_t_c_flag = False
 
-if len(config["samples"]) == 2:
+if len(SAMPLES) == 2:
     input_list = [
-        config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv',
-        config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][1] + '_discordant_reads_filtered_with_mapq.tsv'
+        TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
+        TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[1] + '_discordant_reads_filtered_with_mapq.tsv'
     ]
     tumor_input = "{input[0]}"
     control_input = "{input[1]}"
     paired_t_c_flag = True
-elif len(config["samples"]) == 1:
-    input_list = [config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv']
+elif len(SAMPLES) == 1:
+    input_list = [TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv']
     tumor_input = "{input[0]}"
     control_input = "NULL"
 
@@ -274,15 +321,20 @@ rule count_discordant_reads:
     input:
         input_list
     output:
-        windowTable=config["telomereinsertion_dir"] + '/tables/{pid}_discordant_reads_1_kb_windows.tsv'
+        windowTable=TELOMEREINSERTION_DIR + '/tables/{pid}_discordant_reads_1_kb_windows.tsv'
+    resources:
+        mem_mb=_mem_to_mb("100m"),
+        runtime=_hms_to_minutes("0:59:00")
     params:
         blacklist=config["blacklist"],
-        walltime="0:59:00",
-        mem="100m",
-        jobname="{pid}_count_discordant_reads"
-    version: "1.0"
+        jobname="{pid}_count_discordant_reads",
+        r_function_file=R_FUNCTION_FILE,
+        src_dir=SRC_DIR,
+        tumor=tumor_input,
+        control=control_input
     shell:
-        "R-3.2.2 --no-save --slave --args -t " + tumor_input + " -c " + control_input + " -b {params.blacklist} -o {output.windowTable} " + " -f " + config["R_function_file"] + " < " + config["src_dir"] + "/count_discordant_reads.R"
+        "R-3.2.2 --no-save --slave --args -t {params.tumor} -c {params.control} -b {params.blacklist} "
+        "-o {output.windowTable} -f {params.r_function_file} < {params.src_dir}/count_discordant_reads.R"
 
 
 #------------------------------------------------------------------
@@ -291,56 +343,69 @@ rule count_discordant_reads:
 
 rule get_candidate_regions:
     input:
-        windowTable=config["telomereinsertion_dir"] + '/tables/{pid}_discordant_reads_1_kb_windows.tsv'
+        windowTable=TELOMEREINSERTION_DIR + '/tables/{pid}_discordant_reads_1_kb_windows.tsv'
     output:
-        candidateRegions=config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv'
+        candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv'
+    resources:
+        mem_mb=_mem_to_mb("100m"),
+        runtime=_hms_to_minutes("0:15:00")
     params:
-        walltime="0:15:00",
-        mem="100m",
-        jobname="{pid}_get_candidate_regions"
-    version: "1.0"
+        jobname="{pid}_get_candidate_regions",
+        r_function_file=R_FUNCTION_FILE,
+        src_dir=SRC_DIR,
+        tumor_discordant_read_lower_limit=config["tumor_discordant_read_lower_limit"],
+        control_discordant_read_upper_limit=config["control_discordant_read_upper_limit"]
     shell:
-        "R-3.2.2 --no-save --slave --args {input.windowTable} {output.candidateRegions} " + str(config["tumor_discordant_read_lower_limit"]) + " " + str(config["control_discordant_read_upper_limit"]) + " " + config["R_function_file"] + " < " + config["src_dir"] + "/get_candidate_regions.R"
+        "R-3.2.2 --no-save --slave --args {input.windowTable} {output.candidateRegions} "
+        "{params.tumor_discordant_read_lower_limit} {params.control_discordant_read_upper_limit} "
+        "{params.r_function_file} < {params.src_dir}/get_candidate_regions.R"
 
 
 #------------------------------------------------------------------
 # predict insertion sites
 #------------------------------------------------------------------
 
-if len(config["samples"]) == 2:
+if len(SAMPLES) == 2:
     bam = lambda wildcards: get_alignment_bam(wildcards.pid, wildcards.sample)
-elif len(config["samples"]) == 1:
-    bam = lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0])
+elif len(SAMPLES) == 1:
+    bam = lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0])
 
 rule find_fusion_reads:
     input:
-        candidateRegions=config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
+        candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
         bam=bam
     output:
-        config["telomereinsertion_dir"] + '/clipped_reads/{pid}_{sample}_clipped_reads.tsv'
+        TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_{sample}_clipped_reads.tsv'
+    resources:
+        mem_mb=_mem_to_mb("1g"),
+        runtime=_hms_to_minutes("100:00:00")
     params:
-        walltime="100:00:00",
-        mem="1g",
-        jobname="{pid}_find_fusion_reads"
-    version: "1.0"
+        jobname="{pid}_find_fusion_reads",
+        r_function_file=R_FUNCTION_FILE,
+        src_dir=SRC_DIR
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.bam} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/find_fusion_reads.R"
+        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
+        "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R"
+
 
 rule predict_insertion_sites:
     input:
-        candidateRegions=config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
-        clippedReads=config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv',
-        discordantReads=config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv'
+        candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
+        clippedReads=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv',
+        discordantReads=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv'
     output:
-        config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
+        TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
+    resources:
+        mem_mb=_mem_to_mb("100m"),
+        runtime=_hms_to_minutes("0:10:00")
     params:
-        walltime="0:10:00",
-        mem="100m",
-        jobname="{pid}_predict_insertion_sites"
-    version: "1.0"
+        jobname="{pid}_predict_insertion_sites",
+        r_function_file=R_FUNCTION_FILE,
+        src_dir=SRC_DIR
     message: "--- {wildcards.pid}: predict insertion sites ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/predict_insertion_sites.R"
+        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
+        "{output} {params.r_function_file} < {params.src_dir}/predict_insertion_sites.R"
 
 
 #------------------------------------------------------------------
@@ -349,18 +414,21 @@ rule predict_insertion_sites:
 
 rule get_consensus:
     input:
-        candidateRegions=config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv',
-        clippedReads=config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv'
+        candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv',
+        clippedReads=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv'
     output:
-        config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv'
+        TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv'
+    resources:
+        mem_mb=_mem_to_mb("500m"),
+        runtime=_hms_to_minutes("0:10:00")
     params:
-        walltime="0:10:00",
-        mem="500m",
-        jobname="{pid}_get_consensus"
-    version: "1.0"
+        jobname="{pid}_get_consensus",
+        r_function_file=R_FUNCTION_FILE,
+        src_dir=SRC_DIR
     message: "--- {wildcards.pid}: get consensus ---"
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} " + config["R_function_file"] + " < " + config["src_dir"] + "/get_consensus.R"
+        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} "
+        "{params.r_function_file} < {params.src_dir}/get_consensus.R"
 
 
 #------------------------------------------------------------------
@@ -369,78 +437,89 @@ rule get_consensus:
 
 rule make_bed_for_visualization:
     input:
-        candidateRegions=config["telomereinsertion_dir"] + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
+        candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
     output:
-        outfile1=config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_out/{pid}_telomere_insertions.bed',
-        outfile2=config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed'
+        outfile1=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_out/{pid}_telomere_insertions.bed',
+        outfile2=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed'
+    resources:
+        mem_mb=_mem_to_mb("100m"),
+        runtime=_hms_to_minutes("0:10:00")
     params:
-        walltime="0:10:00",
-        mem="100m",
-        jobname="{pid}_make_bed"
-    version: "1.0"
+        jobname="{pid}_make_bed",
+        src_dir=SRC_DIR
     shell:
-        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} {wildcards.pid}" + " < " + config["src_dir"] + "/make_bed_for_visualization.R"
+        "R-3.2.2 --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} "
+        "{wildcards.pid} < {params.src_dir}/make_bed_for_visualization.R"
 
 
-if len(config["samples"]) == 2:
+if len(SAMPLES) == 2:
 
     rule visualize_zoomed_in:
         input:
-            bed=config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
-            control_bam=lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][1]),
-            discordant_reads_tumor=config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv',
-            discordant_reads_control=config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][1] + '_discordant_reads_filtered_with_mapq.tsv',
-            clipped_reads_tumor=config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv',
-            clipped_reads_control=config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][1] + '_clipped_reads.tsv'
+            bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
+            tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
+            control_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[1]),
+            discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
+            discordant_reads_control=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[1] + '_discordant_reads_filtered_with_mapq.tsv',
+            clipped_reads_tumor=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv',
+            clipped_reads_control=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[1] + '_clipped_reads.tsv'
         output:
-            config["telomereinsertion_dir"] + '/plots/zoomed_in/{pid}_done.txt'
+            TELOMEREINSERTION_DIR + '/plots/zoomed_in/{pid}_done.txt'
+        resources:
+            mem_mb=_mem_to_mb("3g"),
+            runtime=_hms_to_minutes("10:00:00")
         params:
-            walltime="10:00:00",
-            mem="3g",
             jobname="{pid}_visualize_zoomed_in",
-            sleep_sec_limit=config["sleep_sec_limit"]
-        version: "1.0"
+            sleep_sec_limit=config["sleep_sec_limit"],
+            src_dir=SRC_DIR,
+            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/"
         shell:
-            "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-            "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-            "python " + config["src_dir"] + "/visualize_telomere_insertions.py \
-                   --control {input.control_bam} \
-                   --tumor {input.tumor_bam}  \
-                   --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
-                   --bed {input.bed} \
-                   --samtoolsbin samtools-1.3.1 \
-                   --colored_reads_tumor {input.discordant_reads_tumor} \
-                   --colored_reads_control {input.discordant_reads_control} \
-                   --clipped_reads_tumor {input.clipped_reads_tumor} \
-                   --clipped_reads_control {input.clipped_reads_control} \
-                   --prefix " + config["telomereinsertion_dir"] + "/plots/zoomed_in/ \
-                   --outfile {output}"
+            """
+            sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
+            set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u
+            python {params.src_dir}/visualize_telomere_insertions.py \
+                --control {input.control_bam} \
+                --tumor {input.tumor_bam} \
+                --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
+                --bed {input.bed} \
+                --samtoolsbin samtools-1.3.1 \
+                --colored_reads_tumor {input.discordant_reads_tumor} \
+                --colored_reads_control {input.discordant_reads_control} \
+                --clipped_reads_tumor {input.clipped_reads_tumor} \
+                --clipped_reads_control {input.clipped_reads_control} \
+                --prefix {params.prefix} \
+                --outfile {output}
+            """
 
-elif len(config["samples"]) == 1:
+elif len(SAMPLES) == 1:
+
     rule visualize_zoomed_in:
         input:
-            bed=config["telomereinsertion_dir"] + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, config["samples"][0]),
-            discordant_reads_tumor=config["telomereinsertion_dir"] + '/tables/{pid}_' + config["samples"][0] + '_discordant_reads_filtered_with_mapq.tsv',
-            clipped_reads_tumor=config["telomereinsertion_dir"] + '/clipped_reads/{pid}_' + config["samples"][0] + '_clipped_reads.tsv'
+            bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
+            tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
+            discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
+            clipped_reads_tumor=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv'
         output:
-            config["telomereinsertion_dir"] + '/plots/zoomed_in/{pid}_done.txt'
+            TELOMEREINSERTION_DIR + '/plots/zoomed_in/{pid}_done.txt'
+        resources:
+            mem_mb=_mem_to_mb("3g"),
+            runtime=_hms_to_minutes("10:00:00")
         params:
-            walltime="10:00:00",
-            mem="3g",
             jobname="{pid}_visualize_zoomed_in",
-            sleep_sec_limit=config["sleep_sec_limit"]
-        version: "1.0"
+            sleep_sec_limit=config["sleep_sec_limit"],
+            src_dir=SRC_DIR,
+            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/"
         shell:
-            "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-            "set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u; "
-            "python " + config["src_dir"] + "/visualize_telomere_insertions.py \
-                   --tumor {input.tumor_bam}  \
-                   --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
-                   --bed {input.bed} \
-                   --samtoolsbin samtools-1.3.1 \
-                   --colored_reads_tumor {input.discordant_reads_tumor} \
-                   --clipped_reads_tumor {input.clipped_reads_tumor} \
-                   --prefix " + config["telomereinsertion_dir"] + "/plots/zoomed_in/ \
-                   --outfile {output}"
+            """
+            sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
+            set +u; module load Micromamba/2.0.2-0; micromamba activate telomereEnv; set -u
+            python {params.src_dir}/visualize_telomere_insertions.py \
+                --tumor {input.tumor_bam} \
+                --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
+                --bed {input.bed} \
+                --samtoolsbin samtools-1.3.1 \
+                --colored_reads_tumor {input.discordant_reads_tumor} \
+                --clipped_reads_tumor {input.clipped_reads_tumor} \
+                --prefix {params.prefix} \
+                --outfile {output}
+            """
