@@ -591,9 +591,9 @@ if len(SAMPLES) == 2:
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --control {input.control_bam} \
                 --tumor {input.tumor_bam} \
-                --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
+                --ref  /omics/odcf/project/ODCF/reference_genomes/bwa06_1KGRef_PhiX/hs37d5_PhiX.fa \
                 --bed {input.bed} \
-                --samtoolsbin samtools-1.3.1 \
+                --samtoolsbin samtools \
                 --colored_reads_tumor {input.discordant_reads_tumor} \
                 --colored_reads_control {input.discordant_reads_control} \
                 --clipped_reads_tumor {input.clipped_reads_tumor} \
@@ -626,7 +626,7 @@ elif len(SAMPLES) == 1:
             set +u; module load Micromamba/2.0.2-0; set -u
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --tumor {input.tumor_bam} \
-                --ref /icgc/ngs_share/assemblies/hg19_GRCh37_1000genomes/sequence/1KGRef/hs37d5.fa \
+                --ref /omics/odcf/project/ODCF/reference_genomes/bwa06_1KGRef_PhiX/hs37d5_PhiX.fa \
                 --bed {input.bed} \
                 --samtoolsbin samtools \
                 --colored_reads_tumor {input.discordant_reads_tumor} \
