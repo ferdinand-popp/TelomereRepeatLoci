@@ -40,6 +40,8 @@ if (dim(candidate_regions)[1] != 0){
 }
 
 colnames(bed_file)[colnames(bed_file)=="chrom"] = "#chrom"
+# Sort by #chrom and chromStart before writing
+bed_file = bed_file[order(bed_file$`#chrom`, bed_file$chromStart), ]
 write.table(bed_file, file=outfile1, quote=FALSE, row.names = FALSE, sep="\t") 
 
 
@@ -69,7 +71,8 @@ if (dim(candidate_regions)[1] != 0){
 
 
 colnames(bed_file)[colnames(bed_file)=="chrom"] = "#chrom"
-
+# Sort by #chrom and chromStart before writing
+bed_file = bed_file[order(bed_file$`#chrom`, bed_file$chromStart), ]
 write.table(bed_file, file=outfile2, quote=FALSE, row.names = FALSE, sep="\t") 
 
 
