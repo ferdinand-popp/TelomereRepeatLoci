@@ -8,8 +8,6 @@
 # Example value: /path/to/bam_files.tsv
 # Set to no_file to use legacy directory-based mode.
 bam_files_tsv: <PATH_TO_BAM_FILES_TSV>
-
-
 #------------------------------------------------
 # legacy directory-based input mode (optional)
 #------------------------------------------------
@@ -17,17 +15,12 @@ bam_files_tsv: <PATH_TO_BAM_FILES_TSV>
 results_per_pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid
 pid_dir: <EXISTING_PATH_TO_BAMFILES>/results_per_pid
 bam_suffix: _merged.mdup.bam
-
-
 #------------------------------------------------
 # output directories
 #------------------------------------------------
 telomerehunter_dir: <OUTPUT_PATH_FOR_TELOMEREHUNTER_RESULTS>/TelomereHunterResults
 skip_telomerehunter: true
-
 telomereinsertion_dir: <OUTPUT_PATH_FOR_TELOMEREREPEATLOCI_RESULTS>/TelomereRepeatLoci
-
-
 #------------------------------------------------
 # define pids
 #------------------------------------------------
@@ -35,43 +28,35 @@ telomereinsertion_dir: <OUTPUT_PATH_FOR_TELOMEREREPEATLOCI_RESULTS>/TelomereRepe
 #         pids: PID1 PID2 PID3
 # run for all pids in telomerehunter_dir:
 #         pids: all
-
 pids: all 
-
-
 #------------------------------------------------
 # define names of samples (don't change this!)
 #------------------------------------------------
 samples:
   - tumor
   - control
-
-
 #------------------------------------------------
 # provide blacklist of 1kb regions not considered for telomere insertions
 #------------------------------------------------
 blacklist: no_file
-
-
 #------------------------------------------------
 # set thresholds for candidate regions
 #------------------------------------------------
-
 tumor_discordant_read_lower_limit: 3
 control_discordant_read_upper_limit: 0
-
+# Maximum number of telomeric clipped/fusion reads allowed in the control
+# sample at a candidate window before it is dropped as background telomeric
+# noise rather than a genuine tumor-specific insertion. Only applied in
+# 2-sample (tumor+control) mode; ignored for tumor-only runs.
+control_telomeric_read_upper_limit: 0
 consider_blacklist: False   #possible values: True/False
-
 #------------------------------------------------
 # technical parameters
 #------------------------------------------------
-
 # sleep for 1-X seconds (random) before activating miniconda environment
 # (this is important to prevent error due to activation of miniconda environment at the same time)
 # rule of thumb: number_jobs * 6, where number_jobs is the number specified by --jobs
 sleep_sec_limit: 300
-
-
 #------------------------------------------------
 # source directories
 #------------------------------------------------
