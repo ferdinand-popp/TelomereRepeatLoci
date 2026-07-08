@@ -28,13 +28,6 @@ if(length(commandArgs) >= 13){
   count_control = FALSE
 }
 
-print(paste("candidate_regions rows:", dim(candidate_regions)[1]))
-print(paste("clipped_reads_all rows:", dim(clipped_reads_all)[1]))
-print(paste("discordant_read_table rows:", dim(discordant_read_table)[1]))
-if(count_control){
-  print(paste("clipped_reads_control_all rows:", dim(clipped_reads_control_all)[1]))
-}
-
 source(function_file)
 
 #don't use exponential notation of numbers (e.g. 600000 instead of 6e+05)
@@ -50,6 +43,13 @@ discordant_read_table = read.table(discordant_read_file, header=TRUE, sep = "\t"
 
 if(count_control){
   clipped_reads_control_all = read.table(clipped_reads_control_file, header=TRUE, sep = "\t", stringsAsFactors=FALSE, comment.char='')
+}
+
+print(paste("candidate_regions rows:", dim(candidate_regions)[1]))
+print(paste("clipped_reads_all rows:", dim(clipped_reads_all)[1]))
+print(paste("discordant_read_table rows:", dim(discordant_read_table)[1]))
+if(count_control){
+  print(paste("clipped_reads_control_all rows:", dim(clipped_reads_control_all)[1]))
 }
 
 #--------------------------------------------------------------------------------------------------
