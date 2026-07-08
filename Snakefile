@@ -497,10 +497,6 @@ rule find_fusion_reads:
         "R --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
         "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R"
 
-# Thresholds used in predict_insertion_sites.R for final pass/review classification.
-# These are hardcoded in the R script for now, but can be moved to config later if desired.
-control_telomeric_read_upper_limit = config.get("control_telomeric_read_upper_limit", 0)
-
 if len(SAMPLES) == 2:
 
     rule predict_insertion_sites:
@@ -523,7 +519,7 @@ if len(SAMPLES) == 2:
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
             "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
-            "{output} {params.r_function_file} {input.tumorBam} {input.controlBam} "
+            "{output} {params.r_function_file} {input.tumorBam} {input.controlBam} {input.clippedReadsControl} "
             "< {params.src_dir}/predict_insertion_sites.R"
 
 elif len(SAMPLES) == 1:
