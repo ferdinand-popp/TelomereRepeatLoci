@@ -39,8 +39,6 @@ REQUIRED_CONFIG_KEYS = [
     "blacklist",
     "sleep_sec_limit",
     "tumor_discordant_read_lower_limit",
-    "control_discordant_read_upper_limit",
-    "control_telomeric_flanks_bp",
 ]
 
 missing_config_keys = [key for key in REQUIRED_CONFIG_KEYS if key not in config]
