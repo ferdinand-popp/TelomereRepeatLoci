@@ -48,7 +48,8 @@ control_discordant_read_upper_limit: 0
 # sample at a candidate window before it is dropped as background telomeric
 # noise rather than a genuine tumor-specific insertion. Only applied in
 # 2-sample (tumor+control) mode; ignored for tumor-only runs.
-control_telomeric_read_upper_limit: 0
+control_telomeric_flanks_bp: 150
+control_telomeric_read_upper_limit: 5
 consider_blacklist: False   #possible values: True/False
 #------------------------------------------------
 # technical parameters
