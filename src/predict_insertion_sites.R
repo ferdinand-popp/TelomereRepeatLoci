@@ -1,6 +1,8 @@
 # Author: Lina Sieverling
 
-# Usage: R --no-save --slave --args <candidate_region_file> <clipped_reads_file> <discordant_read_file> <outfile> <function_file> <bamfile_tumor> [<bamfile_control> <clipped_reads_control_file>] < ...>
+# Usage:
+#   R --no-save --slave --args --candidate_region_file <file> --clipped_reads_file <file> --discordant_read_file <file> \
+#     --outfile <file> --function_file <file> --bamfile_tumor <bam> [--bamfile_control <bam> --clipped_reads_control_file <file>]
 # Description: trys to predict a telomere insertion site for each candidate region from clipped reads of tumor sample
 #              - takes the position where most clipped sequences start/end (if this is not unique it returns NA)
 #              - add the result to the extended candidate region table
@@ -10,23 +12,38 @@
 #              The clipped-read counts are deduplicated by read_name to avoid double counting soft-/hard-clipped
 #              evidence for the same physical read.
 
-# get commandline arguments
-commandArgs = commandArgs()
-candidate_region_file = commandArgs[5]
-clipped_reads_file = commandArgs[6]
-discordant_read_file = commandArgs[7]
-outfile = commandArgs[8]
-function_file = commandArgs[9]
-bamfile_tumor = commandArgs[10]
+suppressPackageStartupMessages({
+  library(argparse)
+})
 
-# optional control BAM and control clipped-read file (2-sample mode only)
-if(length(commandArgs) >= 13){
-  bamfile_control = commandArgs[11]
-  clipped_reads_control_file = commandArgs[12]
-  count_control = TRUE
-}else{
-  count_control = FALSE
-}
+#------------------------------------------------------------------------------
+# parse command line arguments
+#------------------------------------------------------------------------------
+
+parser = ArgumentParser()
+
+parser$add_argument("--candidate_region_file", required=TRUE)
+parser$add_argument("--clipped_reads_file", required=TRUE)
+parser$add_argument("--discordant_read_file", required=TRUE)
+parser$add_argument("--outfile", required=TRUE)
+parser$add_argument("--function_file", required=TRUE)
+parser$add_argument("--bamfile_tumor", required=TRUE)
+parser$add_argument("--bamfile_control", default=NA)
+parser$add_argument("--clipped_reads_control_file", default=NA)
+
+args = parser$parse_args()
+print(as.list(args))
+
+candidate_region_file = args$candidate_region_file
+clipped_reads_file = args$clipped_reads_file
+discordant_read_file = args$discordant_read_file
+outfile = args$outfile
+function_file = args$function_file
+bamfile_tumor = args$bamfile_tumor
+bamfile_control = args$bamfile_control
+clipped_reads_control_file = args$clipped_reads_control_file
+
+count_control = !is.na(bamfile_control) && !is.na(clipped_reads_control_file)
 
 source(function_file)
 

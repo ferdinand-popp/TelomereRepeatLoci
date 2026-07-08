@@ -518,8 +518,15 @@ if len(SAMPLES) == 2:
             src_dir=SRC_DIR
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
-            "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
-            "{output} {params.r_function_file} {input.tumorBam} {input.controlBam} {input.clippedReadsControl} "
+            "R --no-save --slave --args "
+            "--candidate_region_file {input.candidateRegions} "
+            "--clipped_reads_file {input.clippedReads} "
+            "--discordant_read_file {input.discordantReads} "
+            "--outfile {output} "
+            "--function_file {params.r_function_file} "
+            "--bamfile_tumor {input.tumorBam} "
+            "--bamfile_control {input.controlBam} "
+            "--clipped_reads_control_file {input.clippedReadsControl} "
             "< {params.src_dir}/predict_insertion_sites.R"
 
 elif len(SAMPLES) == 1:
@@ -541,8 +548,14 @@ elif len(SAMPLES) == 1:
             src_dir=SRC_DIR
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
-            "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
-            "{output} {params.r_function_file} {input.tumorBam} < {params.src_dir}/predict_insertion_sites.R"
+            "R --no-save --slave --args "
+            "--candidate_region_file {input.candidateRegions} "
+            "--clipped_reads_file {input.clippedReads} "
+            "--discordant_read_file {input.discordantReads} "
+            "--outfile {output} "
+            "--function_file {params.r_function_file} "
+            "--bamfile_tumor {input.tumorBam} "
+            "< {params.src_dir}/predict_insertion_sites.R"
 
 #------------------------------------------------------------------
 # get consensus sequence of insertion (and bases in sequence microhomology)
