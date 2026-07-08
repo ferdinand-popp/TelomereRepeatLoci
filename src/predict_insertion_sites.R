@@ -11,28 +11,37 @@
 #              and the subset of unique clipped reads whose clipped interval overlaps the 1-bp site window.
 #              The clipped-read counts are deduplicated by read_name to avoid double counting soft-/hard-clipped
 #              evidence for the same physical read.
+# Author: Lina Sieverling
+
+# Usage:
+#   R --no-save --slave --args --candidate_region_file <file> --clipped_reads_file <file> --discordant_read_file <file> \
+#     --outfile <file> --function_file <file> --bamfile_tumor <bam> [--bamfile_control <bam> --clipped_reads_control_file <file>]
+# Description: trys to predict a telomere insertion site for each candidate region from clipped reads of tumor sample
+#              - takes the position where most clipped sequences start/end (if this is not unique it returns NA)
+#              - add the result to the extended candidate region table
+#
+#              For each predicted site we additionally count, for tumor and control, the total reads at the site
+#              and the subset of unique clipped reads whose clipped interval overlaps the 1-bp site window.
+#              The clipped-read counts are deduplicated by read_name to avoid double counting soft-/hard-clipped
+#              evidence for the same physical read.
 
 suppressPackageStartupMessages({
-  library(argparse)
+  library(optparse)
 })
 
-#------------------------------------------------------------------------------
-# parse command line arguments
-#------------------------------------------------------------------------------
+option_list = list(
+  make_option(c("--candidate_region_file"), type="character", help="candidate region table", metavar="file"),
+  make_option(c("--clipped_reads_file"), type="character", help="tumor clipped reads table", metavar="file"),
+  make_option(c("--discordant_read_file"), type="character", help="tumor discordant reads table", metavar="file"),
+  make_option(c("--outfile"), type="character", help="output table", metavar="file"),
+  make_option(c("--function_file"), type="character", help="helper function file", metavar="file"),
+  make_option(c("--bamfile_tumor"), type="character", help="tumor BAM file", metavar="bam"),
+  make_option(c("--bamfile_control"), type="character", default=NA, help="control BAM file", metavar="bam"),
+  make_option(c("--clipped_reads_control_file"), type="character", default=NA, help="control clipped reads table", metavar="file")
+)
 
-parser = ArgumentParser()
-
-parser$add_argument("--candidate_region_file", required=TRUE)
-parser$add_argument("--clipped_reads_file", required=TRUE)
-parser$add_argument("--discordant_read_file", required=TRUE)
-parser$add_argument("--outfile", required=TRUE)
-parser$add_argument("--function_file", required=TRUE)
-parser$add_argument("--bamfile_tumor", required=TRUE)
-parser$add_argument("--bamfile_control", default=NA)
-parser$add_argument("--clipped_reads_control_file", default=NA)
-
-args = parser$parse_args()
-print(as.list(args))
+opt_parser = OptionParser(option_list=option_list)
+args = parse_args(opt_parser)
 
 candidate_region_file = args$candidate_region_file
 clipped_reads_file = args$clipped_reads_file
