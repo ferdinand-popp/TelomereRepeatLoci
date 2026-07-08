@@ -98,46 +98,175 @@ clip_interval_overlaps_site = function(start, end, site_pos){
   return(start <= site_pos && end >= site_pos)
 }
 
-count_unique_clipped_reads_at_site = function(clipped_reads, site_pos){
-  if(is.na(site_pos) || dim(clipped_reads)[1] == 0){
-    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
-  }
-
-  if(!("read_name" %in% colnames(clipped_reads))){
-    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
-  }
-
-  # In find_fusion_reads.R:
-  # - soft-clipped reads get genomic start/end from the alignment coordinates
-  # - hard-clipped supplementary alignments are also represented with start/end
-  # For both, a read overlaps the 1-bp site if start <= site_pos <= end.
-  clipped_reads$start = as.numeric(clipped_reads$start)
-  clipped_reads$end = as.numeric(clipped_reads$end)
-
-  overlapping = clipped_reads[sapply(seq_len(dim(clipped_reads)[1]), function(i) clip_interval_overlaps_site(clipped_reads$start[i], clipped_reads$end[i], site_pos)), ]
-
-  if(dim(overlapping)[1] == 0){
-    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
-  }
-
-  overlapping = overlapping[!is.na(overlapping$read_name) & overlapping$read_name != "", ]
-  if(dim(overlapping)[1] == 0){
-    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
-  }
-
-  # Deduplicate by read_name so a single read only contributes once per site.
-  overlapping_unique = overlapping[!duplicated(overlapping$read_name), ]
-  clipped_count = dim(overlapping_unique)[1]
-  telomeric_count = sum(!is.na(overlapping_unique$part_telomere) & overlapping_unique$part_telomere)
-
-  return(data.frame(clipped_reads_at_site=clipped_count, telomeric_clipped_reads_at_site=telomeric_count))
-}
-
 ratio_or_na = function(num, den){
   if(is.na(num) || is.na(den) || den == 0){
     return(NA)
   }
   return(num / den)
+}
+
+#------------------------------------------------------------------------------
+# helper functions for clipped-read site counting
+#------------------------------------------------------------------------------
+
+cigar_tokens = function(cigar){
+  if(is.na(cigar) || cigar == ""){
+    return(list(lengths=integer(0), ops=character(0)))
+  }
+
+  m = regmatches(cigar, gregexpr("[0-9]+[MIDNSHP=X]", cigar, perl=TRUE))[[1]]
+  if(length(m) == 0){
+    return(list(lengths=integer(0), ops=character(0)))
+  }
+
+  lens = as.integer(sub("([0-9]+).*", "\\1", m))
+  ops = sub("[0-9]+", "", m)
+  return(list(lengths=lens, ops=ops))
+}
+
+# Convert a genomic position to an offset along the read alignment using CIGAR.
+# Returns NA if the position falls in a deletion / skipped region / clipping /
+# or outside the aligned read span.
+cigar_offset_at_site = function(start, cigar, site_pos){
+  if(is.na(start) || is.na(cigar) || is.na(site_pos)){
+    return(NA)
+  }
+
+  tok = cigar_tokens(cigar)
+  if(length(tok$ops) == 0){
+    return(NA)
+  }
+
+  ref_pos = as.numeric(start)
+  read_offset = 0
+
+  for(i in seq_along(tok$ops)){
+    op = tok$ops[i]
+    len = tok$lengths[i]
+
+    if(op %in% c("M", "=", "X")){
+      if(site_pos >= ref_pos && site_pos < (ref_pos + len)){
+        return(read_offset + (site_pos - ref_pos) + 1)
+      }
+      ref_pos = ref_pos + len
+      read_offset = read_offset + len
+
+    } else if(op %in% c("D", "N")){
+      if(site_pos >= ref_pos && site_pos < (ref_pos + len)){
+        return(NA)
+      }
+      ref_pos = ref_pos + len
+
+    } else if(op %in% c("I", "S", "H", "P")){
+      # insertion / clipping / padding do not consume reference
+      if(op == "I"){
+        read_offset = read_offset + len
+      } else if(op %in% c("S", "H")){
+        read_offset = read_offset + len
+      }
+    }
+  }
+
+  return(NA)
+}
+
+cigar_position_is_clipped = function(cigar, read_offset){
+  if(is.na(cigar) || is.na(read_offset)){
+    return(FALSE)
+  }
+
+  tok = cigar_tokens(cigar)
+  if(length(tok$ops) == 0){
+    return(FALSE)
+  }
+
+  # Build read-axis segments, including soft/hard clips and mapped blocks.
+  read_cursor = 1
+
+  for(i in seq_along(tok$ops)){
+    op = tok$ops[i]
+    len = tok$lengths[i]
+
+    if(op %in% c("S", "H")){
+      if(read_offset >= read_cursor && read_offset < (read_cursor + len)){
+        return(TRUE)
+      }
+      read_cursor = read_cursor + len
+
+    } else if(op %in% c("M", "=", "X", "I")){
+      if(read_offset >= read_cursor && read_offset < (read_cursor + len)){
+        return(FALSE)
+      }
+      read_cursor = read_cursor + len
+
+    } else {
+      # D/N/P do not consume read bases
+      next
+    }
+  }
+
+  return(FALSE)
+}
+
+read_clipped_at_site = function(start, end, cigar, site_pos){
+  if(is.na(start) || is.na(end) || is.na(site_pos) || is.na(cigar)){
+    return(FALSE)
+  }
+
+  # keep your existing site_pos logic, but require the site to lie within the read span
+  if(!(start < site_pos && site_pos < end)){
+    return(FALSE)
+  }
+
+  offset = cigar_offset_at_site(start, cigar, site_pos)
+  if(is.na(offset)){
+    return(FALSE)
+  }
+
+  return(cigar_position_is_clipped(cigar, offset))
+}
+
+count_unique_clipped_reads_at_site = function(clipped_reads, site_pos){
+  if(is.na(site_pos) || dim(clipped_reads)[1] == 0){
+    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
+  }
+
+  needed_cols = c("read_name", "start", "end", "cigar", "part_telomere")
+  if(any(!(needed_cols %in% colnames(clipped_reads)))){
+    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
+  }
+
+  clipped_reads$start = as.numeric(clipped_reads$start)
+  clipped_reads$end = as.numeric(clipped_reads$end)
+
+  keep = sapply(seq_len(dim(clipped_reads)[1]), function(i){
+    read_clipped_at_site(
+      clipped_reads$start[i],
+      clipped_reads$end[i],
+      clipped_reads$cigar[i],
+      site_pos
+    )
+  })
+
+  clipped_at_site = clipped_reads[keep, ]
+
+  if(dim(clipped_at_site)[1] == 0){
+    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
+  }
+
+  clipped_at_site = clipped_at_site[!is.na(clipped_at_site$read_name) & clipped_at_site$read_name != "", ]
+  if(dim(clipped_at_site)[1] == 0){
+    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
+  }
+
+  clipped_at_site_unique = clipped_at_site[!duplicated(clipped_at_site$read_name), ]
+  clipped_count = dim(clipped_at_site_unique)[1]
+  telomeric_count = sum(!is.na(clipped_at_site_unique$part_telomere) & clipped_at_site_unique$part_telomere)
+
+  return(data.frame(
+    clipped_reads_at_site=clipped_count,
+    telomeric_clipped_reads_at_site=telomeric_count
+  ))
 }
 
 ##########################################################################################################################
@@ -300,7 +429,7 @@ for(window in unique(clipped_reads_all$window)){
   }
 
   # Count at insertion_site +/- 1 depending on strand/direction.
-  # The 1-bp site window is evaluated by overlap against clipped-read intervals.
+  # The 1-bp site window is evaluated from the read start/end plus CIGAR logic.
   site_pos = as.numeric(candidate_regions[window, "insertion_site"]) + site_offset
   candidate_regions[window, "site_pos_used"] = site_pos
 
@@ -308,18 +437,36 @@ for(window in unique(clipped_reads_all$window)){
   tumor_clipped_counts = count_unique_clipped_reads_at_site(clipped_reads, site_pos)
   candidate_regions[window, "tumor_clipped_reads_at_site"] = tumor_clipped_counts$clipped_reads_at_site
   candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"] = tumor_clipped_counts$telomeric_clipped_reads_at_site
-  candidate_regions[window, "tumor_telomeric_clip_ratio_all"] = ratio_or_na(candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"], candidate_regions[window, "tumor_all_reads_at_site"])
-  candidate_regions[window, "tumor_clipped_ratio_all"] = ratio_or_na(candidate_regions[window, "tumor_clipped_reads_at_site"], candidate_regions[window, "tumor_all_reads_at_site"])
-  candidate_regions[window, "tumor_telomeric_clip_ratio_clipped"] = ratio_or_na(candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"], candidate_regions[window, "tumor_clipped_reads_at_site"])
+  candidate_regions[window, "tumor_telomeric_clip_ratio_all"] = ratio_or_na(
+    candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"],
+    candidate_regions[window, "tumor_all_reads_at_site"]
+  )
+  candidate_regions[window, "tumor_clipped_ratio_all"] = ratio_or_na(
+    candidate_regions[window, "tumor_clipped_reads_at_site"],
+    candidate_regions[window, "tumor_all_reads_at_site"]
+  )
+  candidate_regions[window, "tumor_telomeric_clip_ratio_clipped"] = ratio_or_na(
+    candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"],
+    candidate_regions[window, "tumor_clipped_reads_at_site"]
+  )
 
   if(count_control){
     candidate_regions[window, "control_all_reads_at_site"] = count_reads_at_site(bamfile_control, chrom, site_pos)
     control_clipped_counts = count_unique_clipped_reads_at_site(clipped_reads_control_all, site_pos)
     candidate_regions[window, "control_clipped_reads_at_site"] = control_clipped_counts$clipped_reads_at_site
     candidate_regions[window, "control_telomeric_clipped_reads_at_site"] = control_clipped_counts$telomeric_clipped_reads_at_site
-    candidate_regions[window, "control_telomeric_clip_ratio_all"] = ratio_or_na(candidate_regions[window, "control_telomeric_clipped_reads_at_site"], candidate_regions[window, "control_all_reads_at_site"])
-    candidate_regions[window, "control_clipped_ratio_all"] = ratio_or_na(candidate_regions[window, "control_clipped_reads_at_site"], candidate_regions[window, "control_all_reads_at_site"])
-    candidate_regions[window, "control_telomeric_clip_ratio_clipped"] = ratio_or_na(candidate_regions[window, "control_telomeric_clipped_reads_at_site"], candidate_regions[window, "control_clipped_reads_at_site"])
+    candidate_regions[window, "control_telomeric_clip_ratio_all"] = ratio_or_na(
+      candidate_regions[window, "control_telomeric_clipped_reads_at_site"],
+      candidate_regions[window, "control_all_reads_at_site"]
+    )
+    candidate_regions[window, "control_clipped_ratio_all"] = ratio_or_na(
+      candidate_regions[window, "control_clipped_reads_at_site"],
+      candidate_regions[window, "control_all_reads_at_site"]
+    )
+    candidate_regions[window, "control_telomeric_clip_ratio_clipped"] = ratio_or_na(
+      candidate_regions[window, "control_telomeric_clipped_reads_at_site"],
+      candidate_regions[window, "control_clipped_reads_at_site"]
+    )
   }else{
     candidate_regions[window, "control_all_reads_at_site"] = NA
     candidate_regions[window, "control_clipped_reads_at_site"] = NA
