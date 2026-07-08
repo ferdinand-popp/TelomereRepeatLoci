@@ -1,17 +1,17 @@
 # Author: Lina Sieverling
 
-# Usage: R --no-save --slave --args <candidate_region_file> <clipped_reads_file> <discordant_read_file> <outfile> <function_file> [<clipped_reads_control_file> <control_telomeric_read_upper_limit>] < predict_insertion_sites.R
+# Usage: R --no-save --slave --args <candidate_region_file> <clipped_reads_file> <discordant_read_file> <outfile> <function_file> [<clipped_reads_control_file> <control_telomeric_read_upper_limit> <control_telomeric_flanks_bp>] < ...
 # Description: trys to predict a telomere insertion site for each candidate region from clipped reads of tumor sample
 #              - takes the position where most clipped sequences start/end (if this is not unique it returns NA)
 #              - add the result to the extended candidate region table
 #
-#              The two trailing arguments (control clipped reads file, control telomeric read upper limit) are
-#              optional and only supplied in 2-sample (tumor+control) mode. When present, the per-window
-#              telomeric clipped-read count is aggregated directly from the control sample's clipped_reads.tsv
-#              (the same file produced by find_fusion_reads.R and already used for visualization) and added to
-#              the output table as "control_telomeric_read_count", so filter thresholds can be inspected/tuned.
-#              Candidate regions whose control_telomeric_read_count exceeds <control_telomeric_read_upper_limit>
-#              are dropped as background telomeric noise rather than genuine tumor-specific insertions.
+#              The trailing control-sample arguments (control clipped reads file, control telomeric read upper limit,
+#              control telomeric flanks bp) are optional and only supplied in 2-sample (tumor+control) mode. When present,
+#              the control telomeric clipped-read count is aggregated from the control sample's clipped_reads.tsv, but only for
+#              telomeric control reads whose genomic interval overlaps a window of +/- control_telomeric_flanks_bp around the
+#              predicted insertion site. Candidate regions whose control_telomeric_read_count exceeds
+#              <control_telomeric_read_upper_limit> are dropped as background telomeric noise rather than genuine
+#              tumor-specific insertions.
 
 
 # get commandline arguments
@@ -23,9 +23,10 @@ outfile = commandArgs[8]
 function_file = commandArgs[9]
 
 # optional control-sample filtering arguments (2-sample mode only)
-if(length(commandArgs) >= 11){
+if(length(commandArgs) >= 12){
   clipped_reads_control_file = commandArgs[10]
   control_telomeric_read_upper_limit = as.numeric(commandArgs[11])
+  control_telomeric_flanks_bp = as.numeric(commandArgs[12])
   filter_control_telomeric_reads = TRUE
 }else{
   filter_control_telomeric_reads = FALSE
@@ -49,17 +50,15 @@ discordant_read_table = read.table(discordant_read_file, header=TRUE, sep = "\t"
 if(filter_control_telomeric_reads){
   clipped_reads_control = read.table(clipped_reads_control_file, header=TRUE, sep = "\t", stringsAsFactors=FALSE, comment.char='')
 
-  # aggregate per-window telomeric clipped-read count directly from the control's raw clipped reads table
-  # (part_telomere/TTAGGG_count/CCCTAA_count are already computed per read by find_fusion_reads.R)
+  # count telomeric control reads only around the predicted insertion site
+  # using an overlap with +/- control_telomeric_flanks_bp around the insertion site
   telomeric_reads_control = clipped_reads_control[!is.na(clipped_reads_control$part_telomere) & clipped_reads_control$part_telomere, ]
 
   if(dim(telomeric_reads_control)[1] != 0){
-    control_telomeric_counts = aggregate(part_telomere ~ window, data = telomeric_reads_control, FUN = sum)
-    colnames(control_telomeric_counts)[colnames(control_telomeric_counts) == "part_telomere"] = "control_telomeric_read_count"
-  }else{
-    control_telomeric_counts = data.frame(window = character(0), control_telomeric_read_count = numeric(0))
+    telomeric_reads_control$start = as.numeric(telomeric_reads_control$start)
+    telomeric_reads_control$end = as.numeric(telomeric_reads_control$end)
+    telomeric_reads_control$control_telomeric_read_count = NA
   }
-  row.names(control_telomeric_counts) = control_telomeric_counts$window
 }
 
 
@@ -212,17 +211,26 @@ for(window in unique(clipped_reads_all$window)){
 
 if(filter_control_telomeric_reads){
 
+  candidate_regions[, "control_telomeric_read_count"] = NA
+
   for(window in candidate_regions$window){
-    if(window %in% row.names(control_telomeric_counts)){
-      candidate_regions[window, "control_telomeric_read_count"] = control_telomeric_counts[window, "control_telomeric_read_count"]
-    }else{
-      candidate_regions[window, "control_telomeric_read_count"] = 0
+    insertion_site = candidate_regions[window, "insertion_site"]
+    if(is.na(insertion_site)){
+      next
     }
+
+    control_reads_window = telomeric_reads_control[
+      telomeric_reads_control$chrom == candidate_regions[window, "chrom"] &
+      telomeric_reads_control$end >= (as.numeric(insertion_site) - control_telomeric_flanks_bp) &
+      telomeric_reads_control$start <= (as.numeric(insertion_site) + control_telomeric_flanks_bp),
+    ]
+
+    candidate_regions[window, "control_telomeric_read_count"] = dim(control_reads_window)[1]
   }
 
   # NOTE: control_telomeric_read_count is added to every surviving row above, so it's visible in the
   # output table for inspecting/tuning the threshold. Rows exceeding the threshold are dropped below.
-  candidate_regions = candidate_regions[candidate_regions$control_telomeric_read_count <= control_telomeric_read_upper_limit, ]
+  candidate_regions = candidate_regions[candidate_regions$control_telomeric_read_count <= control_telomeric_read_upper_limit | is.na(candidate_regions$control_telomeric_read_count), ]
 
 }else if(dim(candidate_regions)[1] > 0){
   candidate_regions[, "control_telomeric_read_count"] = NA
