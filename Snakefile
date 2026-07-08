@@ -40,6 +40,7 @@ REQUIRED_CONFIG_KEYS = [
     "sleep_sec_limit",
     "tumor_discordant_read_lower_limit",
     "control_discordant_read_upper_limit",
+    "control_telomeric_flanks_bp",
 ]
 
 missing_config_keys = [key for key in REQUIRED_CONFIG_KEYS if key not in config]
@@ -503,6 +504,7 @@ rule find_fusion_reads:
 # read support in the control sample (background telomeric noise rather than
 # a genuine tumor-specific insertion). Only used in 2-sample (tumor+control) mode.
 control_telomeric_read_upper_limit = config.get("control_telomeric_read_upper_limit", 0)
+control_telomeric_flanks_bp = config["control_telomeric_flanks_bp"]
 
 if len(SAMPLES) == 2:
 
@@ -521,12 +523,13 @@ if len(SAMPLES) == 2:
             jobname="{pid}_predict_insertion_sites",
             r_function_file=R_FUNCTION_FILE,
             src_dir=SRC_DIR,
-            control_telomeric_read_upper_limit=control_telomeric_read_upper_limit
+            control_telomeric_read_upper_limit=control_telomeric_read_upper_limit,
+            control_telomeric_flanks_bp=control_telomeric_flanks_bp
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
             "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
             "{output} {params.r_function_file} {input.clippedReadsControl} "
-            "{params.control_telomeric_read_upper_limit} < {params.src_dir}/predict_insertion_sites.R"
+            "{params.control_telomeric_read_upper_limit} {params.control_telomeric_flanks_bp} < {params.src_dir}/predict_insertion_sites.R"
 
 elif len(SAMPLES) == 1:
 
