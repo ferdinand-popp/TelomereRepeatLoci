@@ -302,6 +302,7 @@ for(window in unique(clipped_reads_all$window)){
   # Count at insertion_site +/- 1 depending on strand/direction.
   # The 1-bp site window is evaluated by overlap against clipped-read intervals.
   site_pos = as.numeric(candidate_regions[window, "insertion_site"]) + site_offset
+  candidate_regions[window, "site_pos_used"] = site_pos
 
   candidate_regions[window, "tumor_all_reads_at_site"] = count_reads_at_site(bamfile_tumor, chrom, site_pos)
   tumor_clipped_counts = count_unique_clipped_reads_at_site(clipped_reads, site_pos)
@@ -358,6 +359,11 @@ for(window in candidate_regions$window){
   tumor_telclip_within_clipped = candidate_regions[window, "tumor_telomeric_clip_ratio_clipped"]
 
   pass_ok = TRUE
+
+  if(compareNA(candidate_regions[window, "blacklisted"], "yes")){
+    pass_ok = FALSE
+    reasons = c(reasons, "blacklisted")
+  }
 
   if(is.na(site_support) || site_support < 3){
     pass_ok = FALSE
