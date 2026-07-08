@@ -1,7 +1,7 @@
 # Author: Lina Sieverling
 
 # Usage: R --no-save --slave --args <candidate_regions_file> <outfile1> <outfile2> <PID> < make_bed_for_visualization.R
-# Description: makes a bed file of the determined telomere insertion sites
+# Description: makes bed files for the determined telomere insertion sites
 
 # get commandline arguments
 commandArgs = commandArgs()
@@ -14,24 +14,33 @@ pid = commandArgs[8]
 options(scipen = 999)
 
 candidate_regions = read.table(candidate_region_file, header=TRUE, sep="\t", stringsAsFactors = FALSE)
-candidate_regions = candidate_regions[!is.na(candidate_regions$insertion_site),]
-candidate_regions = candidate_regions[candidate_regions$reads_supporting_insertion_pos>2,]
+
+# Only visualize candidate regions that passed the new post-prediction filter.
+# Rows with insertion_site = NA are already excluded by passed == TRUE.
+if("passed" %in% colnames(candidate_regions)){
+  candidate_regions = candidate_regions[candidate_regions$passed %in% c(TRUE, "TRUE", "True", 1), ]
+}else{
+  candidate_regions = candidate_regions[!is.na(candidate_regions$insertion_site), ]
+  candidate_regions = candidate_regions[candidate_regions$reads_supporting_insertion_pos > 2, ]
+}
 
 ##############################################################################
 ### make bed file with 500 bp surrounding telomere insertion on either side
 ##############################################################################
 if (dim(candidate_regions)[1] != 0){
-  candidate_regions$windowStart1 = candidate_regions$insertion_site-500
-  candidate_regions[is.na(candidate_regions$windowStart), "windowStart1"] = candidate_regions[is.na(candidate_regions$windowStart1), "chromStart"]
+  candidate_regions$windowStart1 = candidate_regions$insertion_site - 500
+  candidate_regions$windowStart1[is.na(candidate_regions$windowStart1)] = candidate_regions$chromStart[is.na(candidate_regions$windowStart1)]
+  candidate_regions$windowStart1[candidate_regions$windowStart1 < 0] = 0
   
-  candidate_regions$windowEnd1 = candidate_regions$insertion_site+500
-  candidate_regions[is.na(candidate_regions$windowEnd1), "windowEnd1"] = candidate_regions[is.na(candidate_regions$windowEnd1), "chromEnd"]
+  candidate_regions$windowEnd1 = candidate_regions$insertion_site + 500
+  candidate_regions$windowEnd1[is.na(candidate_regions$windowEnd1)] = candidate_regions$chromEnd[is.na(candidate_regions$windowEnd1)]
   
   bed_file = data.frame(chrom = candidate_regions$chrom,
                         chromStart = candidate_regions$windowStart1,
                         chromEnd = candidate_regions$windowEnd1,
                         pos = candidate_regions$insertion_site,
-                        pid = pid)
+                        pid = pid,
+                        stringsAsFactors = FALSE)
   
   bed_file[is.na(bed_file$pos), "pos"] = bed_file[is.na(bed_file$pos), "chromStart"] + ((bed_file[is.na(bed_file$pos), "chromEnd"]-bed_file[is.na(bed_file$pos), "chromStart"]) /2)
   
@@ -52,17 +61,18 @@ write.table(bed_file, file=outfile1, quote=FALSE, row.names = FALSE, sep="\t")
 ### make bed file with 100 bp surrounding telomere insertion on either side
 ##############################################################################
 if (dim(candidate_regions)[1] != 0){
-  candidate_regions$windowStart2 = candidate_regions$insertion_site-100
-  candidate_regions[is.na(candidate_regions$windowStart2), "windowStart2"] = candidate_regions[is.na(candidate_regions$windowStart2), "chromStart"]
+  candidate_regions$windowStart2 = candidate_regions$insertion_site - 100
+  candidate_regions$windowStart2[is.na(candidate_regions$windowStart2)] = candidate_regions$chromStart[is.na(candidate_regions$windowStart2)]
   
-  candidate_regions$windowEnd2 = candidate_regions$insertion_site+100
-  candidate_regions[is.na(candidate_regions$windowEnd2), "windowEnd2"] = candidate_regions[is.na(candidate_regions$windowEnd2), "chromEnd"]
+  candidate_regions$windowEnd2 = candidate_regions$insertion_site + 100
+  candidate_regions$windowEnd2[is.na(candidate_regions$windowEnd2)] = candidate_regions$chromEnd[is.na(candidate_regions$windowEnd2)]
   
   bed_file = data.frame(chrom = candidate_regions$chrom,
                         chromStart = candidate_regions$windowStart2,
                         chromEnd = candidate_regions$windowEnd2,
                         pos = candidate_regions$insertion_site,
-                        pid = pid)
+                        pid = pid,
+                        stringsAsFactors = FALSE)
   
   bed_file[is.na(bed_file$pos), "pos"] = bed_file[is.na(bed_file$pos), "chromStart"] + ((bed_file[is.na(bed_file$pos), "chromEnd"]-bed_file[is.na(bed_file$pos), "chromStart"]) /2)
 }else{
