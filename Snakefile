@@ -499,12 +499,9 @@ rule find_fusion_reads:
         "R --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
         "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R"
 
-
-# Threshold used to drop candidate regions that also show excessive telomeric
-# read support in the control sample (background telomeric noise rather than
-# a genuine tumor-specific insertion). Only used in 2-sample (tumor+control) mode.
+# Thresholds used in predict_insertion_sites.R for final pass/review classification.
+# These are hardcoded in the R script for now, but can be moved to config later if desired.
 control_telomeric_read_upper_limit = config.get("control_telomeric_read_upper_limit", 0)
-control_telomeric_flanks_bp = config["control_telomeric_flanks_bp"]
 
 if len(SAMPLES) == 2:
 
@@ -513,31 +510,9 @@ if len(SAMPLES) == 2:
             candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
             clippedReads=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv',
             discordantReads=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
-            clippedReadsControl=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[1] + '_clipped_reads.tsv'
-        output:
-            TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
-        resources:
-            mem_mb=_mem_to_mb("100m"),
-            runtime=_hms_to_minutes("0:10:00")
-        params:
-            jobname="{pid}_predict_insertion_sites",
-            r_function_file=R_FUNCTION_FILE,
-            src_dir=SRC_DIR,
-            control_telomeric_read_upper_limit=control_telomeric_read_upper_limit,
-            control_telomeric_flanks_bp=control_telomeric_flanks_bp
-        message: "--- {wildcards.pid}: predict insertion sites ---"
-        shell:
-            "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
-            "{output} {params.r_function_file} {input.clippedReadsControl} "
-            "{params.control_telomeric_read_upper_limit} {params.control_telomeric_flanks_bp} < {params.src_dir}/predict_insertion_sites.R"
-
-elif len(SAMPLES) == 1:
-
-    rule predict_insertion_sites:
-        input:
-            candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
-            clippedReads=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv',
-            discordantReads=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv'
+            clippedReadsControl=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[1] + '_clipped_reads.tsv',
+            tumorBam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
+            controlBam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[1])
         output:
             TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
         resources:
@@ -550,8 +525,30 @@ elif len(SAMPLES) == 1:
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
             "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
-            "{output} {params.r_function_file} < {params.src_dir}/predict_insertion_sites.R"
+            "{output} {params.r_function_file} {input.tumorBam} {input.controlBam} "
+            "< {params.src_dir}/predict_insertion_sites.R"
 
+elif len(SAMPLES) == 1:
+
+    rule predict_insertion_sites:
+        input:
+            candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions.tsv',
+            clippedReads=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv',
+            discordantReads=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
+            tumorBam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0])
+        output:
+            TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
+        resources:
+            mem_mb=_mem_to_mb("100m"),
+            runtime=_hms_to_minutes("0:10:00")
+        params:
+            jobname="{pid}_predict_insertion_sites",
+            r_function_file=R_FUNCTION_FILE,
+            src_dir=SRC_DIR
+        message: "--- {wildcards.pid}: predict insertion sites ---"
+        shell:
+            "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {input.discordantReads} "
+            "{output} {params.r_function_file} {input.tumorBam} < {params.src_dir}/predict_insertion_sites.R"
 
 #------------------------------------------------------------------
 # get consensus sequence of insertion (and bases in sequence microhomology)
