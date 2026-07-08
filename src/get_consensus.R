@@ -13,7 +13,9 @@ candidate_regions_file = commandArgs[5]
 clipped_read_file = commandArgs[6]
 outfile = commandArgs[7]
 
+suppressPackageStartupMessages({
 library('BSgenome.Hsapiens.UCSC.hg19')
+})
 
 ########################################################################################################################################
 

@@ -14,8 +14,10 @@ bamfile = commandArgs[6]
 outfile = commandArgs[7]
 function_file = commandArgs[8]
 
+suppressPackageStartupMessages({
 library(GenomicAlignments)
 library(stringr)
+})
 
 source(function_file)
 
