@@ -396,6 +396,10 @@ for(window in unique(clipped_reads_all$window)){
     candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"],
     candidate_regions[window, "tumor_clipped_reads_at_site"]
   )
+  candidate_regions[window, "tumor_nontelomeric_ratio_all"] = ratio_or_na(
+    candidate_regions[window, "tumor_clipped_reads_at_site"] - candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"],
+    candidate_regions[window, "tumor_all_reads_at_site"] - candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"]
+  )
 
   if(count_control){
     candidate_regions[window, "control_all_reads_at_site"] = count_reads_at_site(bamfile_control, chrom, site_pos)
@@ -451,6 +455,7 @@ for(window in candidate_regions$window){
   control_clip_ratio = candidate_regions[window, "control_clipped_ratio_all"]
   tumor_clip_ratio = candidate_regions[window, "tumor_clipped_ratio_all"]
   tumor_telclip_within_clipped = candidate_regions[window, "tumor_telomeric_clip_ratio_clipped"]
+  tumor_nontel_ratio_all = candidate_regions[window, "tumor_nontelomeric_ratio_all"]
 
   pass_ok = TRUE
 
@@ -486,6 +491,9 @@ for(window in candidate_regions$window){
   if(!is.na(tumor_clip_ratio) && tumor_clip_ratio > 0.30 && !is.na(tumor_telclip_within_clipped) && tumor_telclip_within_clipped < 0.50){
     review_hits = review_hits + 1
   }
+  if(!is.na(tumor_nontel_ratio_all) && tumor_nontel_ratio_all > 0.25){
+    review_hits = review_hits + 1
+  }
 
   candidate_regions[window, "passed"] = pass_ok
   candidate_regions[window, "flagged_for_review"] = review_hits >= 2
@@ -505,6 +513,7 @@ if (dim(candidate_regions)[1]==0){
     sum_TTAGGG_count=NA, sum_CCCTAA_count=NA, repeat_forward=NA,
     tumor_all_reads_at_site=NA, tumor_clipped_reads_at_site=NA, tumor_telomeric_clipped_reads_at_site=NA,
     tumor_telomeric_clip_ratio_all=NA, tumor_clipped_ratio_all=NA, tumor_telomeric_clip_ratio_clipped=NA,
+    tumor_nontelomeric_ratio_all=NA,
     control_all_reads_at_site=NA, control_clipped_reads_at_site=NA, control_telomeric_clipped_reads_at_site=NA,
     control_telomeric_clip_ratio_all=NA, control_clipped_ratio_all=NA, control_telomeric_clip_ratio_clipped=NA,
     passed=NA, flagged_for_review=NA, filter_reason=NA
