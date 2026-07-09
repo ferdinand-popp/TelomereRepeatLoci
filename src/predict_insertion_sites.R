@@ -11,19 +11,7 @@
 #              and the subset of unique clipped reads whose clipped interval overlaps the 1-bp site window.
 #              The clipped-read counts are deduplicated by read_name to avoid double counting soft-/hard-clipped
 #              evidence for the same physical read.
-# Author: Lina Sieverling
-
-# Usage:
-#   R --no-save --slave --args --candidate_region_file <file> --clipped_reads_file <file> --discordant_read_file <file> \
-#     --outfile <file> --function_file <file> --bamfile_tumor <bam> [--bamfile_control <bam> --clipped_reads_control_file <file>]
-# Description: trys to predict a telomere insertion site for each candidate region from clipped reads of tumor sample
-#              - takes the position where most clipped sequences start/end (if this is not unique it returns NA)
-#              - add the result to the extended candidate region table
 #
-#              For each predicted site we additionally count, for tumor and control, the total reads at the site
-#              and the subset of unique clipped reads whose clipped interval overlaps the 1-bp site window.
-#              The clipped-read counts are deduplicated by read_name to avoid double counting soft-/hard-clipped
-#              evidence for the same physical read.
 
 suppressPackageStartupMessages({
   library(optparse)
@@ -124,106 +112,64 @@ cigar_tokens = function(cigar){
   return(list(lengths=lens, ops=ops))
 }
 
-# Convert a genomic position to an offset along the read alignment using CIGAR.
-# Returns NA if the position falls in a deletion / skipped region / clipping /
-# or outside the aligned read span.
-cigar_offset_at_site = function(start, cigar, site_pos){
-  if(is.na(start) || is.na(cigar) || is.na(site_pos)){
-    return(NA)
+# Leading (left) and trailing (right) soft/hard-clip length from a CIGAR string.
+# These are the clip lengths at the very start/end of the CIGAR, i.e. the parts of
+# the read that fall *outside* the aligned [start, end] reference span.
+clip_lengths = function(cigar){
+  if(is.na(cigar) || cigar == ""){
+    return(list(left=0L, right=0L))
   }
 
   tok = cigar_tokens(cigar)
   if(length(tok$ops) == 0){
-    return(NA)
+    return(list(left=0L, right=0L))
   }
 
-  ref_pos = as.numeric(start)
-  read_offset = 0
+  left = 0L
+  right = 0L
 
-  for(i in seq_along(tok$ops)){
-    op = tok$ops[i]
-    len = tok$lengths[i]
-
-    if(op %in% c("M", "=", "X")){
-      if(site_pos >= ref_pos && site_pos < (ref_pos + len)){
-        return(read_offset + (site_pos - ref_pos) + 1)
-      }
-      ref_pos = ref_pos + len
-      read_offset = read_offset + len
-
-    } else if(op %in% c("D", "N")){
-      if(site_pos >= ref_pos && site_pos < (ref_pos + len)){
-        return(NA)
-      }
-      ref_pos = ref_pos + len
-
-    } else if(op %in% c("I", "S", "H", "P")){
-      # insertion / clipping / padding do not consume reference
-      if(op == "I"){
-        read_offset = read_offset + len
-      } else if(op %in% c("S", "H")){
-        read_offset = read_offset + len
-      }
-    }
+  if(tok$ops[1] %in% c("S", "H")){
+    left = tok$lengths[1]
   }
 
-  return(NA)
+  n = length(tok$ops)
+  if(tok$ops[n] %in% c("S", "H")){
+    right = tok$lengths[n]
+  }
+
+  return(list(left=left, right=right))
 }
 
-cigar_position_is_clipped = function(cigar, read_offset){
-  if(is.na(cigar) || is.na(read_offset)){
-    return(FALSE)
-  }
-
-  tok = cigar_tokens(cigar)
-  if(length(tok$ops) == 0){
-    return(FALSE)
-  }
-
-  # Build read-axis segments, including soft/hard clips and mapped blocks.
-  read_cursor = 1
-
-  for(i in seq_along(tok$ops)){
-    op = tok$ops[i]
-    len = tok$lengths[i]
-
-    if(op %in% c("S", "H")){
-      if(read_offset >= read_cursor && read_offset < (read_cursor + len)){
-        return(TRUE)
-      }
-      read_cursor = read_cursor + len
-
-    } else if(op %in% c("M", "=", "X", "I")){
-      if(read_offset >= read_cursor && read_offset < (read_cursor + len)){
-        return(FALSE)
-      }
-      read_cursor = read_cursor + len
-
-    } else {
-      # D/N/P do not consume read bases
-      next
-    }
-  }
-
-  return(FALSE)
-}
-
+# A read is "clipped at site_pos" if the genomic footprint of one of its soft/hard
+# clips overlaps the 1-bp site window. The clip footprint is not part of the aligned
+# [start, end] span (soft/hard clips don't consume reference), so we place it
+# immediately adjacent to that span:
+#   left clip  -> [start - left_len,  start - 1]
+#   right clip -> [end + 1,           end + right_len]
 read_clipped_at_site = function(start, end, cigar, site_pos){
   if(is.na(start) || is.na(end) || is.na(site_pos) || is.na(cigar)){
     return(FALSE)
   }
 
-  # keep your existing site_pos logic, but require the site to lie within the read span
-  if(!(start < site_pos && site_pos < end)){
-    return(FALSE)
+  cl = clip_lengths(cigar)
+
+  if(cl$left > 0){
+    left_clip_start = start - cl$left
+    left_clip_end = start - 1
+    if(clip_interval_overlaps_site(left_clip_start, left_clip_end, site_pos)){
+      return(TRUE)
+    }
   }
 
-  offset = cigar_offset_at_site(start, cigar, site_pos)
-  if(is.na(offset)){
-    return(FALSE)
+  if(cl$right > 0){
+    right_clip_start = end + 1
+    right_clip_end = end + cl$right
+    if(clip_interval_overlaps_site(right_clip_start, right_clip_end, site_pos)){
+      return(TRUE)
+    }
   }
 
-  return(cigar_position_is_clipped(cigar, offset))
+  return(FALSE)
 }
 
 count_unique_clipped_reads_at_site = function(clipped_reads, site_pos){
@@ -429,7 +375,8 @@ for(window in unique(clipped_reads_all$window)){
   }
 
   # Count at insertion_site +/- 1 depending on strand/direction.
-  # The 1-bp site window is evaluated from the read start/end plus CIGAR logic.
+  # The 1-bp site window is evaluated from the read's clip genomic footprint (see
+  # read_clipped_at_site() above) rather than by walking the CIGAR's reference-consuming ops.
   site_pos = as.numeric(candidate_regions[window, "insertion_site"]) + site_offset
   candidate_regions[window, "site_pos_used"] = site_pos
 
