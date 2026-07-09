@@ -1,14 +1,18 @@
 # Author: Lina Sieverling
 
-# Usage: R --no-save --slave --args <candidate_regions_file> <outfile1> <outfile2> <PID> < make_bed_for_visualization.R
+# Usage: R --no-save --slave --args <candidate_regions_file> <outfile1> <outfile2> <outfile3> <PID> < make_bed_for_visualization.R
 # Description: makes bed files for the determined telomere insertion sites
+# outfile3 is the subset of outfile2 (100bp zoomed-in window) restricted to sites that are
+# both passed and flagged_for_review, so downstream plotting can additionally copy those PDFs
+# into a review_passed folder.
 
 # get commandline arguments
 commandArgs = commandArgs()
 candidate_region_file = commandArgs[5]
 outfile1 = commandArgs[6]
 outfile2 = commandArgs[7]
-pid = commandArgs[8]
+outfile3 = commandArgs[8]
+pid = commandArgs[9]
 
 #don't use exponential notation of numbers (e.g. 600000 instead of 6e+05)
 options(scipen = 999)
@@ -75,15 +79,32 @@ if (dim(candidate_regions)[1] != 0){
                         stringsAsFactors = FALSE)
   
   bed_file[is.na(bed_file$pos), "pos"] = bed_file[is.na(bed_file$pos), "chromStart"] + ((bed_file[is.na(bed_file$pos), "chromEnd"]-bed_file[is.na(bed_file$pos), "chromStart"]) /2)
+
+  if("flagged_for_review" %in% colnames(candidate_regions)){
+    review_bed_file = bed_file[candidate_regions$flagged_for_review %in% c(TRUE, "TRUE", "True", 1), ]
+  }else{
+    review_bed_file = bed_file[numeric(0), ]
+  }
 }else{
   bed_file = data.frame(chrom=NA, chromStart=NA, chromEnd=NA, pos=NA, pid=NA)[numeric(0), ]
+  review_bed_file = bed_file
 }
 
 
 colnames(bed_file)[colnames(bed_file)=="chrom"] = "#chrom"
 # Sort by #chrom (as integer) and chromStart (numeric) before writing
 bed_file = bed_file[order(as.integer(bed_file$`#chrom`), bed_file$chromStart), ]
-write.table(bed_file, file=outfile2, quote=FALSE, row.names = FALSE, sep="\t") 
+write.table(bed_file, file=outfile2, quote=FALSE, row.names = FALSE, sep="\t")
+
+
+##############################################################################
+### make bed file (subset of the 100bp window bed) for sites that are both
+### passed and flagged_for_review, used to additionally copy their PDFs into
+### a review_passed folder
+##############################################################################
+colnames(review_bed_file)[colnames(review_bed_file)=="chrom"] = "#chrom"
+review_bed_file = review_bed_file[order(as.integer(review_bed_file$`#chrom`), review_bed_file$chromStart), ]
+write.table(review_bed_file, file=outfile3, quote=FALSE, row.names = FALSE, sep="\t")
 
 
 #############################################################################################################

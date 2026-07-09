@@ -589,7 +589,8 @@ rule make_bed_for_visualization:
         candidateRegions=TELOMEREINSERTION_DIR + '/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended.tsv'
     output:
         outfile1=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_out/{pid}_telomere_insertions.bed',
-        outfile2=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed'
+        outfile2=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
+        outfile3=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed'
     resources:
         mem_mb=_mem_to_mb("100m"),
         runtime=_hms_to_minutes("0:10:00")
@@ -597,7 +598,7 @@ rule make_bed_for_visualization:
         jobname="{pid}_make_bed",
         src_dir=SRC_DIR
     shell:
-        "R --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} "
+        "R --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} {output.outfile3} "
         "{wildcards.pid} < {params.src_dir}/make_bed_for_visualization.R"
 
 
@@ -606,6 +607,7 @@ if len(SAMPLES) == 2:
     rule visualize_zoomed_in:
         input:
             bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
+            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed',
             tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
             control_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[1]),
             discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
@@ -621,7 +623,8 @@ if len(SAMPLES) == 2:
             jobname="{pid}_visualize_zoomed_in",
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
-            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/"
+            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
+            review_prefix=TELOMEREINSERTION_DIR + "/plots/review_passed/"
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
@@ -637,6 +640,8 @@ if len(SAMPLES) == 2:
                 --clipped_reads_tumor {input.clipped_reads_tumor} \
                 --clipped_reads_control {input.clipped_reads_control} \
                 --prefix {params.prefix} \
+                --review_bed {input.review_bed} \
+                --review_prefix {params.review_prefix} \
                 --outfile {output}
             """
 
@@ -645,6 +650,7 @@ elif len(SAMPLES) == 1:
     rule visualize_zoomed_in:
         input:
             bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
+            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed',
             tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
             discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
             clipped_reads_tumor=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv'
@@ -657,7 +663,8 @@ elif len(SAMPLES) == 1:
             jobname="{pid}_visualize_zoomed_in",
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
-            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/"
+            prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
+            review_prefix=TELOMEREINSERTION_DIR + "/plots/review_passed/"
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
@@ -670,5 +677,7 @@ elif len(SAMPLES) == 1:
                 --colored_reads_tumor {input.discordant_reads_tumor} \
                 --clipped_reads_tumor {input.clipped_reads_tumor} \
                 --prefix {params.prefix} \
+                --review_bed {input.review_bed} \
+                --review_prefix {params.review_prefix} \
                 --outfile {output}
             """

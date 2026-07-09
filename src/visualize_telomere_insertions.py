@@ -24,6 +24,7 @@
 
 
 import os
+import shutil
 import subprocess
 import argparse
 import matplotlib
@@ -63,6 +64,11 @@ argument_parser.add_argument('--clipped_reads_control', type=str,
     default=None, help='a table with all clipped read sequences in control sample')
 argument_parser.add_argument('--outfile', type=str,
     default=None, help='path to dummy output file (needed for snakemake)')
+argument_parser.add_argument('--review_bed', metavar='FILE', type=str,
+    default=None, help='bed file (same format as --bed) of sites that are also flagged_for_review; '
+    'their PDFs get additionally copied into --review_prefix')
+argument_parser.add_argument('--review_prefix', metavar='PREFIX', type=str,
+    default=None, help='target directory to copy PDFs of --review_bed sites into')
 parsed_arguments = argument_parser.parse_args()
 print(parsed_arguments.clipped_reads_tumor)
 
@@ -593,7 +599,18 @@ else:
   clipped_reads_control_dict = None
 
 
-#go through bed file and make plots for each 
+#sites that are also flagged_for_review get their pdf additionally copied into --review_prefix
+review_flagged_keys = set()
+if parsed_arguments.review_bed:
+  for line in open(parsed_arguments.review_bed, 'r'):
+    if line[:1] != "#":
+      review_chrom  = line.split('\t')[0]
+      review_center = int(line.split('\t')[3])
+      review_pid    = line.rstrip().split('\t')[4]
+      review_flagged_keys.add((review_pid, review_chrom, review_center))
+
+
+#go through bed file and make plots for each
 if parsed_arguments.bed:
 
   for line in open(parsed_arguments.bed, 'r' ):
@@ -614,10 +631,15 @@ if parsed_arguments.bed:
       plot_region( region_chrom, region_center, region_left, region_right, plot_title )
 
       #plot.savefig( "%s%s_%s_%i.png" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
-      plot.savefig( "%s%s_%s_%i.pdf" % ( parsed_arguments.prefix, pid, region_chrom, region_center ) )
+      pdf_path = "%s%s_%s_%i.pdf" % ( parsed_arguments.prefix, pid, region_chrom, region_center )
+      plot.savefig( pdf_path )
       plot.clf()
       plot.cla()
       plot.close()
+
+      if parsed_arguments.review_prefix and (pid, region_chrom, region_center) in review_flagged_keys:
+        os.makedirs(parsed_arguments.review_prefix, exist_ok=True)
+        shutil.copy2(pdf_path, os.path.join(parsed_arguments.review_prefix, os.path.basename(pdf_path)))
 
 
 
