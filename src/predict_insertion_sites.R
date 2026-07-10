@@ -461,6 +461,7 @@ for(window in candidate_regions$window){
   tumor_telclip_within_clipped = candidate_regions[window, "tumor_telomeric_clip_ratio_clipped"]
   tumor_nontel_ratio_all = candidate_regions[window, "tumor_nontelomeric_ratio_all"]
   tumor_nontelclip_ratio_all_reads = candidate_regions[window, "tumor_nontelomeric_clip_ratio_all_reads"]
+  tumor_site_support_ratio_all = ratio_or_na(site_support, candidate_regions[window, "tumor_all_reads_at_site"])
 
   pass_ok = TRUE
 
@@ -502,9 +503,12 @@ for(window in candidate_regions$window){
   if(!is.na(site_support) && site_support %in% c(3, 4) && !is.na(tumor_nontelclip_ratio_all_reads) && tumor_nontelclip_ratio_all_reads > 0.20){
     review_hits = review_hits + 1
   }
+  if(!is.na(tumor_site_support_ratio_all) && tumor_site_support_ratio_all < 0.05){
+    review_hits = review_hits + 1
+  }
 
   candidate_regions[window, "passed"] = pass_ok
-  candidate_regions[window, "flagged_for_review"] = review_hits >= 2
+  candidate_regions[window, "flagged_for_review"] = review_hits >= 1
 
   if(length(reasons) == 0){
     candidate_regions[window, "filter_reason"] = NA
