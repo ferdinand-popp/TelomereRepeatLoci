@@ -236,6 +236,7 @@ for(window in unique(clipped_reads_all$window)){
   candidate_regions[window, "sum_TTAGGG_count"] = NA
   candidate_regions[window, "sum_CCCTAA_count"] = NA
   candidate_regions[window, "repeat_forward"] = NA
+  candidate_regions[window, "ambiguous_insertion_site"] = FALSE
 
   if(sum(clipped_reads$part_telomere, na.rm=TRUE) == 0){
     next
@@ -325,6 +326,15 @@ for(window in unique(clipped_reads_all$window)){
 
   insertion_pos = table_pos_insertion[table_pos_insertion$unique_cigars==max(table_pos_insertion$unique_cigars), "pos"]
 
+  # ties happen when two candidate positions have equal unique_cigars support (e.g. two
+  # nearby real insertion sites collapsed into the same window). Rather than dropping the
+  # window entirely, break the tie using the discordant-read median position already
+  # computed above as an independent signal for where the breakpoint should be, and flag
+  # the call for manual review instead of silently discarding it.
+  if(length(insertion_pos) > 1){
+    insertion_pos = insertion_pos[which.min(abs(as.numeric(insertion_pos) - discordant_read_pos_median))]
+    candidate_regions[window, "ambiguous_insertion_site"] = TRUE
+  }
 
   if(length(insertion_pos)==1){
     candidate_regions[window, "insertion_site"] = insertion_pos
@@ -516,6 +526,11 @@ for(window in candidate_regions$window){
     review_reasons = c(review_reasons, "low_tumor_site_support_ratio")
   }
 
+  if(compareNA(candidate_regions[window, "ambiguous_insertion_site"], TRUE)){
+    review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "ambiguous_insertion_site_tiebreak")
+  }
+
   candidate_regions[window, "passed"] = pass_ok
   candidate_regions[window, "flagged_for_review"] = review_hits >= 1
 
@@ -537,7 +552,7 @@ if (dim(candidate_regions)[1]==0){
     PID=NA, window=NA, chrom=NA, chromStart=NA, chromEnd=NA, strand=NA,
     tumor_discordant_read_count=NA, control_discordant_read_count=NA, blacklisted=NA,
     insertion_site=NA, pos_telomeres_from_insertion=NA, reads_supporting_insertion_pos=NA,
-    sum_TTAGGG_count=NA, sum_CCCTAA_count=NA, repeat_forward=NA,
+    sum_TTAGGG_count=NA, sum_CCCTAA_count=NA, repeat_forward=NA, ambiguous_insertion_site=NA,
     tumor_all_reads_at_site=NA, tumor_clipped_reads_at_site=NA, tumor_telomeric_clipped_reads_at_site=NA,
     tumor_telomeric_clip_ratio_all=NA, tumor_clipped_ratio_all=NA, tumor_telomeric_clip_ratio_clipped=NA,
     tumor_nontelomeric_ratio_all=NA, tumor_nontelomeric_clip_ratio_all_reads=NA,
