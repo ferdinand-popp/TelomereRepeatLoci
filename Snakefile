@@ -39,6 +39,7 @@ REQUIRED_CONFIG_KEYS = [
     "blacklist",
     "sleep_sec_limit",
     "tumor_discordant_read_lower_limit",
+    "reference_fasta",
 ]
 
 missing_config_keys = [key for key in REQUIRED_CONFIG_KEYS if key not in config]
@@ -191,6 +192,7 @@ TELOMEREINSERTION_DIR = config["telomereinsertion_dir"]
 SRC_DIR = config["src_dir"]
 R_FUNCTION_FILE = config["R_function_file"]
 SAMPLES = config["samples"]
+REFERENCE_FASTA = config["reference_fasta"]
 
 # Modern Snakemake is stricter about wildcard resolution; constraining
 # {pid} and {sample} avoids ambiguous-wildcard errors in the DAG.
@@ -323,7 +325,7 @@ if len(SAMPLES) == 2:
         TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam',
         TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
     ]
-    telomerehunter_shell_extra = "-ibc {input[1]} -pl "
+    telomerehunter_shell_extra = "-ibc {input[1]}"
     telomerehunter_threads = 2
 elif len(SAMPLES) == 1:
     input_list = [
@@ -354,9 +356,9 @@ if not skip_telomerehunter:
         shell:
             "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
             "set +u; module load Micromamba/2.0.2-0; module load R/3.4.2; set -u; "
-            "time micromamba run -n telomereEnv telomerehunter -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
+            "time micromamba run -n telomereEnv telomerehunter2 -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
 else:
-    logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter outputs.")
+    logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter2 outputs.")
 
 
 #------------------------------------------------------------------
@@ -623,6 +625,7 @@ if len(SAMPLES) == 2:
             jobname="{pid}_visualize_zoomed_in",
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
+            reference_fasta=REFERENCE_FASTA,
             prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
             review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
@@ -632,7 +635,7 @@ if len(SAMPLES) == 2:
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --control {input.control_bam} \
                 --tumor {input.tumor_bam} \
-                --ref  /omics/odcf/project/ODCF/reference_genomes/bwa06_1KGRef_PhiX/hs37d5_PhiX.fa \
+                --ref {params.reference_fasta} \
                 --bed {input.bed} \
                 --samtoolsbin samtools \
                 --colored_reads_tumor {input.discordant_reads_tumor} \
@@ -663,6 +666,7 @@ elif len(SAMPLES) == 1:
             jobname="{pid}_visualize_zoomed_in",
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
+            reference_fasta=REFERENCE_FASTA,
             prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
             review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
@@ -671,7 +675,7 @@ elif len(SAMPLES) == 1:
             set +u; module load Micromamba/2.0.2-0; set -u
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
                 --tumor {input.tumor_bam} \
-                --ref /omics/odcf/project/ODCF/reference_genomes/bwa06_1KGRef_PhiX/hs37d5_PhiX.fa \
+                --ref {params.reference_fasta} \
                 --bed {input.bed} \
                 --samtoolsbin samtools \
                 --colored_reads_tumor {input.discordant_reads_tumor} \

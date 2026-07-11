@@ -32,6 +32,9 @@ micromamba create -y -n "${ENV_NAME}" -c conda-forge -c bioconda \
     snakemake \
     samtools
 
+echo "Installing TelomereHunter2..."
+micromamba run -n "${ENV_NAME}" pip install telomerehunter2
+
 echo "Environment '${ENV_NAME}' is ready."
 echo "Run Python with:"
 echo "  micromamba run -n ${ENV_NAME} python your_script.py"

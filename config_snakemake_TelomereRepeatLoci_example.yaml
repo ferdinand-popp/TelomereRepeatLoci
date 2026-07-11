@@ -19,7 +19,9 @@ bam_suffix: _merged.mdup.bam
 # output directories
 #------------------------------------------------
 telomerehunter_dir: <OUTPUT_PATH_FOR_TELOMEREHUNTER_RESULTS>/TelomereHunterResults
-skip_telomerehunter: true
+# Set to true only if TelomereHunter2 has already been run and its intratelomeric
+# BAM outputs already exist (see README) - false runs TelomereHunter2 as part of this workflow.
+skip_telomerehunter: false
 telomereinsertion_dir: <OUTPUT_PATH_FOR_TELOMEREREPEATLOCI_RESULTS>/TelomereRepeatLoci
 #------------------------------------------------
 # define pids
@@ -63,3 +65,7 @@ sleep_sec_limit: 300
 #------------------------------------------------
 src_dir: <SRC_DIR_FOR_SNAKEMAKE_WORKFLOW>/src
 R_function_file: <PATH_TO_FUNCTION_FILE>/functions.R
+#------------------------------------------------
+# reference genome (used for IGV-like visualization plots)
+#------------------------------------------------
+reference_fasta: <PATH_TO_REFERENCE_GENOME_FASTA>
