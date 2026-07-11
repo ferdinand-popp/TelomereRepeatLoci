@@ -46,9 +46,16 @@ Lina Sieverling, Chen Hong, Sandra D. Koser, Philip Ginsbach, Kortine Kleinheinz
    ./setup_micromamba_telomereEnv.sh
    ```
 
+   Package versions are pinned in the script for reproducibility; the exact resolved
+   environment is additionally recorded to `telomereEnv.lock.yaml` after setup.
+
 3. Copy and edit the example config:
    - `config_snakemake_TelomereRepeatLoci_example.yaml`
-   - Set `reference_fasta` to a reference genome FASTA (used by the visualization step).
+   - Set `reference_fasta` to a reference genome FASTA matching the genome build the input BAMs
+     were aligned against (used by both the visualization step and `get_consensus.R`'s
+     flanking-sequence/microhomology lookup). It must be `samtools faidx`-indexed (a
+     `<reference_fasta>.fai` alongside it); contig naming ("1" vs "chr1") is auto-resolved
+     against the FASTA's own index, so either convention works.
    - Leave `skip_telomerehunter: false` for a full end-to-end run that invokes TelomereHunter2
      itself, or set it to `true` if you already have TelomereHunter2 intratelomeric BAMs (see
      [Config notes](#config-notes)).
@@ -115,10 +122,15 @@ In `config_snakemake_TelomereRepeatLoci_example.yaml`:
   `true` to skip it if intratelomeric BAMs already exist (either at the default TelomereHunter2
   output path, or at custom paths supplied via the TSV's `path_to_<sample>_intratelomeric_bam`
   columns).
-- `reference_fasta` must point to the reference genome FASTA used to align the input BAMs; it is
-  passed to the visualization step (`visualize_zoomed_in`).
+- `reference_fasta` must point to the reference genome FASTA used to align the input BAMs
+  (`samtools faidx`-indexed); it is passed to both the visualization step
+  (`visualize_zoomed_in`) and `get_consensus.R`.
 - `blacklist` is an optional list of excluded 1 kb regions used to filter out known false-positive
   candidate regions.
+- `min_site_support`, `max_control_tel_ratio`, `max_control_tel_reads` are optional hard-filter
+  thresholds for the final predicted-insertion pass/fail classification in
+  `predict_insertion_sites.R` (defaults: `3`, `0.10`, `4`, matching the script's original
+  hardcoded values).
 - PIDs whose required BAMs are missing are validated up front and dropped from the run with a
   warning rather than failing the whole workflow.
 
@@ -159,7 +171,7 @@ The python script `find_discordant_reads.py` goes through the intratelomeric rea
 
 For each candidate region obtained in the previous step, clipped reads that span the telomere repeat locus junction site are searched for with `find_fusion_reads.R`. First, the script searches for soft-clipped sequences. For this, all reads in the candidate region +/- 300 bp are extracted, including the read name, sequence, position, cigar and flag. The reads are then filtered and only those containing an "S" in the cigar string are kept. Moreover, the end position of the clipped sequence is extracted. Next, hard-clipped reads are obtained by searching for supplementary alignments in the candidate region +/- 300 bp. If the candidate region is on the (+) strand, supplementary alignments are extracted with `samtools view -f 2048 -F 16`, i.e. reads that are supplementary alignments and not on the reverse strand. For those on the (-) strand, the command "samtools view -f 2064" was used, i.e. reads that are supplementary alignments and on the reverse strand. In contrast to soft-clipped reads, the SAM format does not contain the clipped sequence of supplementary alignments in the SEQ field. Therefore, the full sequence must be retrieved from the primary alignment of the read. For this, the position and strand of the primary alignment is obtained from the SA tag of the supplementary alignment. `samtools view` is used on the alignment BAM file to extract reads in the region of the primary alignment, which are further filtered by read name and strand to obtain the read sequence of the primary alignment. If supplementary and primary alignments are on opposite strands, the sequence is reverse complemented. All information on soft- and hard-clipped sequences is then merged into one table. By taking the length of the clipped sequences into account, the clipped parts of the read sequences are obtained. For each read, the number of TTAGGG and CCCTAA repeats in the clipped sequence are counted. The position of the clipped sequence, i.e. whether sequences were clipped in the upstream or downstream end of the read alignment, is inferred from the cigars.
 
-The exact position of the telomere repeat locus is obtained from the position of the clipped reads by `predict_insertion_sites.R`. For this, only reads that contain at least one telomeric repeat in the clipped sequence are taken into account. If the discordant reads map to the (+) strand, the clipped parts of the reads need to be at the end of the aligned read. If the discordant reads map to the (-) strand, clipping needs to occur at the start of the reads. Moreover, the clipping position needs to be downstream or upstream of the median discordant read positions, respectively. Finally, a frequency table of the number of clipped reads ending or starting at different positions, respectively, is calculated. Here, only clipped reads with unique cigars at each position are counted. This filter was included because mapping artifacts were observed where all clipped reads mapped to exactly the same position. For each candidate region, the total number of clipped reads supporting the telomere repeat locus, the orientation of the telomere sequence (TTAGGG or CCCTAA on the forward strand) and the total number of TTAGGG and CCCTAA counts in the fusion reads is reported.
+The exact position of the telomere repeat locus is obtained from the position of the clipped reads by `predict_insertion_sites.R`. For this, only reads that contain at least one telomeric repeat in the clipped sequence are taken into account. If the discordant reads map to the (+) strand, the clipped parts of the reads need to be at the end of the aligned read. If the discordant reads map to the (-) strand, clipping needs to occur at the start of the reads. Moreover, the clipping position needs to be downstream or upstream of the median discordant read positions, respectively. Finally, a frequency table of the number of clipped reads ending or starting at different positions, respectively, is calculated. Here, only clipped reads with unique cigars at each position are counted. This filter was included because mapping artifacts were observed where all clipped reads mapped to exactly the same position. If two or more candidate positions tie on this count (e.g. two nearby real insertion sites collapsed into the same window), the tie is broken using the median discordant-read position as an independent signal, and the call is flagged for review (`ambiguous_insertion_site_tiebreak`) rather than being dropped. For each candidate region, the total number of clipped reads supporting the telomere repeat locus, the orientation of the telomere sequence (TTAGGG or CCCTAA on the forward strand) and the total number of TTAGGG and CCCTAA counts in the fusion reads is reported.
 
 Each candidate region is additionally classified as `passed` (or dropped, with a `filter_reason`) and/or `flagged_for_review` (with a `flagged_reason`, e.g. high control telomeric signal or low site support) based on read-support and control-contamination heuristics, so borderline calls can be triaged separately from confident ones — see [Outputs](#outputs) below.
 
