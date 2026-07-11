@@ -24,6 +24,38 @@ source(function_file)
 #don't use exponential notation of numbers (e.g. 600000 instead of 6e+05)
 options(scipen = 999)
 
+# runs `samtools view`, shell-quoting the bam path and region (region is built from
+# candidate_regions, not BAM content, but quoted defensively regardless); extra_args are
+# fixed flag tokens (e.g. "-f", "2048") supplied by this script, never BAM-derived, so they
+# don't need quoting
+run_samtools_view = function(bamfile, region, extra_args = character(0)){
+  args = c("view", extra_args, shQuote(bamfile), shQuote(region))
+  system2("samtools", args, stdout = TRUE)
+}
+
+# parses raw (tab-separated) SAM lines into the fields this script needs. Replaces the old
+# approach of splicing read names/tags into `grep`/`awk` shell pipelines per read, which was
+# both a shell-injection risk (read names and SA tags come from BAM content, not from this
+# script) and unreliable (grep treats the read name as a regex, so special characters or
+# substring matches could grab the wrong read).
+parse_sam_lines = function(lines){
+  if(length(lines)==0){
+    return(data.frame(read_name=character(0), flag=character(0), start=numeric(0),
+                       cigar=character(0), sequence=character(0), tags=character(0),
+                       stringsAsFactors=FALSE))
+  }
+  fields = strsplit(lines, "\t")
+  data.frame(
+    read_name = vapply(fields, `[`, character(1), 1),
+    flag      = vapply(fields, `[`, character(1), 2),
+    start     = as.numeric(vapply(fields, `[`, character(1), 4)),
+    cigar     = vapply(fields, `[`, character(1), 6),
+    sequence  = vapply(fields, `[`, character(1), 10),
+    tags      = vapply(fields, function(x) paste(x[-(1:11)], collapse="\t"), character(1)),
+    stringsAsFactors = FALSE
+  )
+}
+
 #----------------------------------------------------------------------
 # get candidate region
 #----------------------------------------------------------------------
@@ -46,22 +78,23 @@ for(window in candidate_regions$window){
   #----------------------------------------------------------------------
   # get soft-clipped reads in candidate region
   #----------------------------------------------------------------------
-  view_window_command = paste0("samtools view ", bamfile, " ", chrom, ":", chromStart-300, "-", chromEnd+300)
-  
+  region = paste0(chrom, ":", chromStart-300, "-", chromEnd+300)
+  sam_fields = parse_sam_lines(run_samtools_view(bamfile, region))
+
   # extract read names
-  read_names = system(paste0(view_window_command, " | cut -f 1"), intern=TRUE)
+  read_names = sam_fields$read_name
 
   # extract sequence
-  read_seq = system(paste0(view_window_command, " | cut -f 10"), intern=TRUE)
-  
+  read_seq = sam_fields$sequence
+
   # extract position
-  start = as.numeric(system(paste0(view_window_command, " | cut -f 4"), intern=TRUE))
-  
+  start = sam_fields$start
+
   # extract cigar
-  cigar = system(paste0(view_window_command, " | cut -f 6"), intern=TRUE)
-  
+  cigar = sam_fields$cigar
+
   #extract flag
-  flag = system(paste0(view_window_command, " | cut -f 2"), intern=TRUE)
+  flag = sam_fields$flag
 
   # make table with soft clipped reads
   reads_in_window_df = data.frame(read_name = read_names, flag = flag, start = start, cigar = cigar, sequence = read_seq, stringsAsFactors=FALSE)    
@@ -101,32 +134,32 @@ for(window in candidate_regions$window){
   for (strandSupp in c("+", "-")){
     
     if (strandSupp == "+"){
-      flag_expr="-f 2048 -F 16"
+      flag_args = c("-f", "2048", "-F", "16")
     }else if(strandSupp == "-"){
-      flag_expr="-f 2064"
+      flag_args = c("-f", "2064")
     }
-    
-    view_window_command = paste0("samtools view ", flag_expr, " ", bamfile, " ", chrom, ":", chromStart-300, "-", chromEnd+300)
-    
+
+    sam_fields = parse_sam_lines(run_samtools_view(bamfile, region, flag_args))
+
     # extract read names
-    read_names = system(paste0(view_window_command, " | cut -f 1"), intern=TRUE)
-    
+    read_names = sam_fields$read_name
+
     # extract position
-    pos = as.numeric(system(paste0(view_window_command, " | cut -f 4"), intern=TRUE))
-    
+    pos = sam_fields$start
+
     #extract cigar
-    cigar = system(paste0(view_window_command, " | cut -f 6"), intern=TRUE)
-    
+    cigar = sam_fields$cigar
+
     #extract if read is first or second in pair
-    flag = system(paste0(view_window_command, " | cut -f 2"), intern=TRUE)
+    flag = sam_fields$flag
     read_1_2  = sapply(as.numeric(flag), function(x) if(bitwAnd(x,0x40)){"READ1"}else if(bitwAnd(x,0x80)){"READ2"}else{NA})
-    
-    
+
+
     # end of supp alignments (=sum of matches and deletions)
     end = pos + unlist(lapply(regmatches(cigar,gregexpr("\\d+[MD]",cigar)), function(x) sum(as.numeric(gsub("[A-z]", "", x)))))
-    
+
     #extract SA Tag with position and strand of primary alignment
-    tags = system(paste0(view_window_command, "| cut -f 12-"), intern=TRUE)    
+    tags = sam_fields$tags
     SA_tag = unlist(regmatches(tags,gregexpr("SA:Z:[^,]+,\\d+,[-\\+]",tags)))
     
     chr_primary_align = gsub(",\\d+,[-\\+]", "", gsub("SA:Z:", "", SA_tag))
@@ -179,19 +212,28 @@ for(window in candidate_regions$window){
       read_1_2 = SA_table$read_1_2[i]
       
       if (strand_primary=="+"){
-        strand_primary_flag = "-F 2064"
+        strand_primary_flag_args = c("-F", "2064")
       }else{
-        strand_primary_flag = "-F 2048 -f 16"
+        strand_primary_flag_args = c("-F", "2048", "-f", "16")
       }
-      
+
       if (read_1_2=="READ1"){
-        read_1_2_flag = "-f 64"
+        read_1_2_flag_args = c("-f", "64")
       }else if(read_1_2=="READ2"){
-        read_1_2_flag = "-f 128"
+        read_1_2_flag_args = c("-f", "128")
       }
-      
-      seq = system(paste0("samtools view ", strand_primary_flag, " ", read_1_2_flag, " ", bamfile, " ", SA_table$chr_primary_align[i], ":", coord_primary, "-", coord_primary + 1, " | grep ", SA_table$read_name[i], " | awk '$4 == ", coord_primary, " {print}' | grep SA:Z: | grep ", coord_suppl, " | cut -f 10"), intern=TRUE)
-     
+
+      primary_region = paste0(SA_table$chr_primary_align[i], ":", coord_primary, "-", coord_primary + 1)
+      primary_fields = parse_sam_lines(run_samtools_view(bamfile, primary_region, c(strand_primary_flag_args, read_1_2_flag_args)))
+
+      # exact matching on read name + position (rather than grep-as-regex on raw SAM text),
+      # plus confirming the supplementary coordinate is actually present in this read's SA tag
+      match_idx = which(primary_fields$read_name == SA_table$read_name[i] &
+                           primary_fields$start == coord_primary &
+                           grepl("SA:Z:", primary_fields$tags, fixed=TRUE) &
+                           grepl(coord_suppl, primary_fields$tags, fixed=TRUE))
+      seq = primary_fields$sequence[match_idx]
+
       # if read is mapped to different strand than supplementary alignment: get reverse complement 
       if (strand_primary==strandSupp){
         SA_table[i, "sequence"] = seq
