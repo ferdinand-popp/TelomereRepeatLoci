@@ -12,10 +12,37 @@ commandArgs = commandArgs()
 candidate_regions_file = commandArgs[5]
 clipped_read_file = commandArgs[6]
 outfile = commandArgs[7]
+reference_fasta_file = commandArgs[8]
 
-suppressPackageStartupMessages({
-library('BSgenome.Hsapiens.UCSC.hg19')
-})
+# reference sequence is read directly from the pipeline's configured reference_fasta via
+# `samtools faidx` (must be indexed, i.e. a <reference_fasta_file>.fai must exist) so that
+# the genome build always matches whatever the BAMs were aligned against, instead of a
+# hardcoded build. Uses the samtools binary already required elsewhere in the pipeline
+# rather than pulling in Rsamtools/htslib as a second, separate dependency.
+
+# candidate_regions$chrom is bare-style ("1", "X"), but the reference fasta may use
+# "chr"-prefixed contigs ("chr1") -- resolve the actual contig name once from the .fai
+# index instead of requiring the user to know/configure which convention their fasta uses.
+fai_contigs = read.table(paste0(reference_fasta_file, ".fai"), header=FALSE, sep="\t", stringsAsFactors=FALSE)$V1
+
+resolve_chrom = function(chrom, contigs){
+  if (chrom %in% contigs){
+    return(chrom)
+  } else if (paste0("chr", chrom) %in% contigs){
+    return(paste0("chr", chrom))
+  } else if (sub("^chr", "", chrom) %in% contigs){
+    return(sub("^chr", "", chrom))
+  } else {
+    stop(sprintf("chromosome '%s' not found in reference fasta contigs (checked '%s' and 'chr' variants)", chrom, chrom))
+  }
+}
+
+get_reference_seq = function(fasta_file, chrom, start, end){
+  chrom = resolve_chrom(chrom, fai_contigs)
+  region = sprintf("%s:%d-%d", chrom, start, end)
+  fasta_lines = system2("samtools", c("faidx", shQuote(fasta_file), shQuote(region)), stdout=TRUE)
+  paste0(fasta_lines[-1], collapse="")
+}
 
 ########################################################################################################################################
 
@@ -97,12 +124,13 @@ for (window in candidate_regions$window){
   # get flanking reference sequence         
   #------------------------------------------------------------
   
-  chrom_chr = paste0("chr", candidate_regions[window, "chrom"])
-  
+  # get_reference_seq resolves "1" vs "chr1" against the fasta's own contig names
+  chrom_chr = candidate_regions[window, "chrom"]
+
   if (candidate_regions[window, "strand"]=="+"){
-    seq = as.character(getSeq(Hsapiens, chrom_chr, insertion_site-20, insertion_site-1))
+    seq = get_reference_seq(reference_fasta_file, chrom_chr, insertion_site-20, insertion_site-1)
   }else if (candidate_regions[window, "strand"]=="-"){
-    seq = as.character(getSeq(Hsapiens, chrom_chr, insertion_site, insertion_site+19)) 
+    seq = get_reference_seq(reference_fasta_file, chrom_chr, insertion_site, insertion_site+19)
   }
   
   candidate_regions[window, "flanking_seq"]  = seq

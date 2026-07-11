@@ -575,11 +575,12 @@ rule get_consensus:
     params:
         jobname="{pid}_get_consensus",
         r_function_file=R_FUNCTION_FILE,
-        src_dir=SRC_DIR
+        src_dir=SRC_DIR,
+        reference_fasta=REFERENCE_FASTA
     message: "--- {wildcards.pid}: get consensus ---"
     shell:
         "R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} "
-        "{params.r_function_file} < {params.src_dir}/get_consensus.R"
+        "{params.reference_fasta} {params.r_function_file} < {params.src_dir}/get_consensus.R"
 
 
 #------------------------------------------------------------------

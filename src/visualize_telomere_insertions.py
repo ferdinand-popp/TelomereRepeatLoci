@@ -79,10 +79,24 @@ basepair_colors = { 'A':"#4DE34D", 'C':"#7D7DFF", 'G':"#FFBE52", 'T':"#FF4D4D", 
 
 import pysam
 
+def resolve_chrom( contigs, chrom ):
+  # the pipeline's own chrom values are bare ("1", "X"), but the reference fasta may use
+  # "chr"-prefixed contigs ("chr1") -- resolve against the fasta's actual contig names
+  # instead of requiring the "chr"/no-"chr" convention to be known/configured up front.
+  if chrom in contigs:
+    return chrom
+  elif "chr" + chrom in contigs:
+    return "chr" + chrom
+  elif chrom.startswith( "chr" ) and chrom[3:] in contigs:
+    return chrom[3:]
+  else:
+    raise ValueError( "chromosome '%s' not found in reference fasta contigs (checked '%s' and 'chr' variants)" % ( chrom, chrom ) )
+
+
 class ReferenceBuffer(object):
   def __init__( self, filename, chromosome ):
     self.fasta      = pysam.FastaFile( filename )
-    self.chromosome = chromosome
+    self.chromosome = resolve_chrom( self.fasta.references, chromosome )
     self.offset     = 0
     self.sequence   = ""
 

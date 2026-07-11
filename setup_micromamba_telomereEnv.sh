@@ -25,7 +25,6 @@ micromamba create -y -n "${ENV_NAME}" -c conda-forge -c bioconda \
     r-data.table \
     r-stringr \
     bioconductor-genomicalignments \
-    bioconductor-bsgenome.hsapiens.ucsc.hg19 \
     pysam \
     matplotlib \
     pandas \
