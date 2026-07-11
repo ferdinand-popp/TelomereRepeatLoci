@@ -25,7 +25,10 @@ option_list = list(
   make_option(c("--function_file"), type="character", help="helper function file", metavar="file"),
   make_option(c("--bamfile_tumor"), type="character", help="tumor BAM file", metavar="bam"),
   make_option(c("--bamfile_control"), type="character", default=NA, help="control BAM file", metavar="bam"),
-  make_option(c("--clipped_reads_control_file"), type="character", default=NA, help="control clipped reads table", metavar="file")
+  make_option(c("--clipped_reads_control_file"), type="character", default=NA, help="control clipped reads table", metavar="file"),
+  make_option(c("--min_site_support"), type="integer", default=3, help="minimum reads_supporting_insertion_pos to pass [default %default]", metavar="int"),
+  make_option(c("--max_control_tel_ratio"), type="double", default=0.10, help="maximum control_telomeric_clip_ratio_all to pass [default %default]", metavar="float"),
+  make_option(c("--max_control_tel_reads"), type="integer", default=4, help="maximum control_telomeric_clipped_reads_at_site to pass [default %default]", metavar="int")
 )
 
 opt_parser = OptionParser(option_list=option_list)
@@ -38,6 +41,21 @@ outfile = args$outfile
 function_file = args$function_file
 bamfile_tumor = args$bamfile_tumor
 bamfile_control = args$bamfile_control
+min_site_support = args$min_site_support
+max_control_tel_ratio = args$max_control_tel_ratio
+max_control_tel_reads = args$max_control_tel_reads
+
+# review-only thresholds (flag for manual review but do not affect pass/fail) -- edit
+# here directly rather than via Snakemake config, since these are secondary signals
+# rather than the primary pass/fail decision
+REVIEW_CONTROL_TEL_READS = 2
+REVIEW_CONTROL_TEL_RATIO = 0.02
+REVIEW_CONTROL_CLIP_RATIO = 0.30
+REVIEW_TUMOR_CLIP_RATIO = 0.30
+REVIEW_TUMOR_TELCLIP_FRACTION = 0.50
+REVIEW_TUMOR_NONTEL_RATIO = 0.25
+REVIEW_LOW_SITE_SUPPORT_MAX = 4
+REVIEW_LOW_SITE_SUPPORT_NONTEL_RATIO = 0.20
 clipped_reads_control_file = args$clipped_reads_control_file
 
 count_control = !is.na(bamfile_control) && !is.na(clipped_reads_control_file)
@@ -482,42 +500,42 @@ for(window in candidate_regions$window){
     reasons = c(reasons, "blacklisted")
   }
 
-  if(is.na(site_support) || site_support < 3){
+  if(is.na(site_support) || site_support < min_site_support){
     pass_ok = FALSE
     reasons = c(reasons, "insufficient_site_support")
   }
 
-  if(is.na(control_tel_ratio) || control_tel_ratio >= 0.10){
+  if(is.na(control_tel_ratio) || control_tel_ratio >= max_control_tel_ratio){
     pass_ok = FALSE
     reasons = c(reasons, "high_control_telomeric_ratio")
   }
 
-  if(is.na(control_tel_reads) || control_tel_reads > 4){
+  if(is.na(control_tel_reads) || control_tel_reads > max_control_tel_reads){
     pass_ok = FALSE
     reasons = c(reasons, "high_control_telomeric_count")
   }
 
-  if(!is.na(control_tel_reads) && control_tel_reads >= 2){
+  if(!is.na(control_tel_reads) && control_tel_reads >= REVIEW_CONTROL_TEL_READS){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "control_telomeric_count")
   }
-  if(!is.na(control_tel_ratio) && control_tel_ratio > 0.02){
+  if(!is.na(control_tel_ratio) && control_tel_ratio > REVIEW_CONTROL_TEL_RATIO){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "control_telomeric_ratio")
   }
-  if(!is.na(control_clip_ratio) && control_clip_ratio > 0.30){
+  if(!is.na(control_clip_ratio) && control_clip_ratio > REVIEW_CONTROL_CLIP_RATIO){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "control_clip_ratio")
   }
-  if(!is.na(tumor_clip_ratio) && tumor_clip_ratio > 0.30 && !is.na(tumor_telclip_within_clipped) && tumor_telclip_within_clipped < 0.50){
+  if(!is.na(tumor_clip_ratio) && tumor_clip_ratio > REVIEW_TUMOR_CLIP_RATIO && !is.na(tumor_telclip_within_clipped) && tumor_telclip_within_clipped < REVIEW_TUMOR_TELCLIP_FRACTION){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "low_tumor_telomeric_clip_fraction")
   }
-  if(!is.na(tumor_nontel_ratio_all) && tumor_nontel_ratio_all > 0.25){
+  if(!is.na(tumor_nontel_ratio_all) && tumor_nontel_ratio_all > REVIEW_TUMOR_NONTEL_RATIO){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "high_tumor_nontelomeric_ratio")
   }
-  if(!is.na(site_support) && site_support %in% c(3, 4) && !is.na(tumor_nontelclip_ratio_all_reads) && tumor_nontelclip_ratio_all_reads > 0.20){
+  if(!is.na(site_support) && site_support >= min_site_support && site_support <= REVIEW_LOW_SITE_SUPPORT_MAX && !is.na(tumor_nontelclip_ratio_all_reads) && tumor_nontelclip_ratio_all_reads > REVIEW_LOW_SITE_SUPPORT_NONTEL_RATIO){
     review_hits = review_hits + 1
     review_reasons = c(review_reasons, "low_site_support_high_nontelomeric_clips")
   }

@@ -47,6 +47,11 @@ blacklist: no_file
 tumor_discordant_read_lower_limit: 3
 control_discordant_read_upper_limit: 0
 consider_blacklist: False   #possible values: True/False
+# hard-filter thresholds for the final predicted-insertion pass/fail classification
+# (predict_insertion_sites.R) -- all optional, defaults shown below
+min_site_support: 3               # minimum unique-cigar reads supporting the predicted insertion site
+max_control_tel_ratio: 0.10       # maximum fraction of control reads at the site that are telomeric-clipped
+max_control_tel_reads: 4          # maximum absolute count of control telomeric-clipped reads at the site
 #------------------------------------------------
 # technical parameters
 #------------------------------------------------

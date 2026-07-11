@@ -194,6 +194,12 @@ R_FUNCTION_FILE = config["R_function_file"]
 SAMPLES = config["samples"]
 REFERENCE_FASTA = config["reference_fasta"]
 
+# hard-filter thresholds for predict_insertion_sites.R's pass/fail classification;
+# optional with defaults matching the script's original hardcoded values
+MIN_SITE_SUPPORT = config.get("min_site_support", 3)
+MAX_CONTROL_TEL_RATIO = config.get("max_control_tel_ratio", 0.10)
+MAX_CONTROL_TEL_READS = config.get("max_control_tel_reads", 4)
+
 # Modern Snakemake is stricter about wildcard resolution; constraining
 # {pid} and {sample} avoids ambiguous-wildcard errors in the DAG.
 wildcard_constraints:
@@ -517,7 +523,10 @@ if len(SAMPLES) == 2:
         params:
             jobname="{pid}_predict_insertion_sites",
             r_function_file=R_FUNCTION_FILE,
-            src_dir=SRC_DIR
+            src_dir=SRC_DIR,
+            min_site_support=MIN_SITE_SUPPORT,
+            max_control_tel_ratio=MAX_CONTROL_TEL_RATIO,
+            max_control_tel_reads=MAX_CONTROL_TEL_READS
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
             "R --no-save --slave --args "
@@ -529,6 +538,9 @@ if len(SAMPLES) == 2:
             "--bamfile_tumor {input.tumorBam} "
             "--bamfile_control {input.controlBam} "
             "--clipped_reads_control_file {input.clippedReadsControl} "
+            "--min_site_support {params.min_site_support} "
+            "--max_control_tel_ratio {params.max_control_tel_ratio} "
+            "--max_control_tel_reads {params.max_control_tel_reads} "
             "< {params.src_dir}/predict_insertion_sites.R"
 
 elif len(SAMPLES) == 1:
@@ -547,7 +559,10 @@ elif len(SAMPLES) == 1:
         params:
             jobname="{pid}_predict_insertion_sites",
             r_function_file=R_FUNCTION_FILE,
-            src_dir=SRC_DIR
+            src_dir=SRC_DIR,
+            min_site_support=MIN_SITE_SUPPORT,
+            max_control_tel_ratio=MAX_CONTROL_TEL_RATIO,
+            max_control_tel_reads=MAX_CONTROL_TEL_READS
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
             "R --no-save --slave --args "
@@ -557,6 +572,9 @@ elif len(SAMPLES) == 1:
             "--outfile {output} "
             "--function_file {params.r_function_file} "
             "--bamfile_tumor {input.tumorBam} "
+            "--min_site_support {params.min_site_support} "
+            "--max_control_tel_ratio {params.max_control_tel_ratio} "
+            "--max_control_tel_reads {params.max_control_tel_reads} "
             "< {params.src_dir}/predict_insertion_sites.R"
 
 #------------------------------------------------------------------
