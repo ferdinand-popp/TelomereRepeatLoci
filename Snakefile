@@ -361,7 +361,7 @@ if not skip_telomerehunter:
             extra=telomerehunter_shell_extra
         shell:
             "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
-            "set +u; module load Micromamba/2.0.2-0; module load R/3.4.2; set -u; "
+            "set +u; module load Micromamba/2.0.2-0; set -u; "
             "time micromamba run -n telomereEnv telomerehunter2 -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all"
 else:
     logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter2 outputs.")

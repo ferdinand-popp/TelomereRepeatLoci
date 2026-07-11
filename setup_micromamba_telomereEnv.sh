@@ -17,24 +17,31 @@ echo "Cleaning micromamba/conda caches..."
 micromamba clean --all -y
 
 # Create fresh environment
+# Versions are pinned (major.minor, or exact where behavior-sensitive) so re-running this
+# script later doesn't silently pull newer package versions and change pipeline behavior.
+# Re-verify/update these deliberately rather than relaxing them.
 echo "Creating new environment '${ENV_NAME}'..."
 micromamba create -y -n "${ENV_NAME}" -c conda-forge -c bioconda \
     python=3.11 \
     r-base=4.4 \
-    r-optparse \
-    r-data.table \
-    r-stringr \
-    bioconductor-genomicalignments \
-    pysam \
-    matplotlib \
-    pandas \
-    snakemake \
-    samtools
+    r-optparse=1.7.5 \
+    r-data.table=1.15 \
+    r-stringr=1.5 \
+    bioconductor-genomicalignments=1.40 \
+    pysam=0.22 \
+    matplotlib=3.9 \
+    pandas=2.2 \
+    snakemake=8.25 \
+    samtools=1.20
 
 echo "Installing TelomereHunter2..."
+# Not version-pinned: exact PyPI release numbers drift too fast to hardcode reliably here.
+# The lock file written below records whatever version actually got installed.
 micromamba run -n "${ENV_NAME}" pip install telomerehunter2
 
 echo "Environment '${ENV_NAME}' is ready."
+echo "Recording exact resolved versions to telomereEnv.lock.yaml for reproducibility..."
+micromamba env export -n "${ENV_NAME}" > "$(dirname "${BASH_SOURCE[0]}")/telomereEnv.lock.yaml"
 echo "Run Python with:"
 echo "  micromamba run -n ${ENV_NAME} python your_script.py"
 echo "Run R with:"
