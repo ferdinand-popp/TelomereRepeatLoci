@@ -624,7 +624,7 @@ if len(SAMPLES) == 2:
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
             prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
-            review_prefix=TELOMEREINSERTION_DIR + "/plots/review_passed/"
+            review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
@@ -664,7 +664,7 @@ elif len(SAMPLES) == 1:
             sleep_sec_limit=config["sleep_sec_limit"],
             src_dir=SRC_DIR,
             prefix=TELOMEREINSERTION_DIR + "/plots/zoomed_in/",
-            review_prefix=TELOMEREINSERTION_DIR + "/plots/review_passed/"
+            review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
             """
             sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
