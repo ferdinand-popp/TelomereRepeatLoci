@@ -439,6 +439,7 @@ for(window in unique(clipped_reads_all$window)){
 candidate_regions[, "passed"] = FALSE
 candidate_regions[, "flagged_for_review"] = FALSE
 candidate_regions[, "filter_reason"] = NA
+candidate_regions[, "flagged_reason"] = NA
 
 for(window in candidate_regions$window){
   insertion_site = candidate_regions[window, "insertion_site"]
@@ -451,6 +452,7 @@ for(window in candidate_regions$window){
   }
 
   reasons = c()
+  review_reasons = c()
   review_hits = 0
 
   site_support = candidate_regions[window, "reads_supporting_insertion_pos"]
@@ -487,24 +489,31 @@ for(window in candidate_regions$window){
 
   if(!is.na(control_tel_reads) && control_tel_reads >= 2){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "control_telomeric_count")
   }
   if(!is.na(control_tel_ratio) && control_tel_ratio > 0.02){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "control_telomeric_ratio")
   }
   if(!is.na(control_clip_ratio) && control_clip_ratio > 0.30){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "control_clip_ratio")
   }
   if(!is.na(tumor_clip_ratio) && tumor_clip_ratio > 0.30 && !is.na(tumor_telclip_within_clipped) && tumor_telclip_within_clipped < 0.50){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "low_tumor_telomeric_clip_fraction")
   }
   if(!is.na(tumor_nontel_ratio_all) && tumor_nontel_ratio_all > 0.25){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "high_tumor_nontelomeric_ratio")
   }
   if(!is.na(site_support) && site_support %in% c(3, 4) && !is.na(tumor_nontelclip_ratio_all_reads) && tumor_nontelclip_ratio_all_reads > 0.20){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "low_site_support_high_nontelomeric_clips")
   }
   if(!is.na(tumor_site_support_ratio_all) && tumor_site_support_ratio_all < 0.05){
     review_hits = review_hits + 1
+    review_reasons = c(review_reasons, "low_tumor_site_support_ratio")
   }
 
   candidate_regions[window, "passed"] = pass_ok
@@ -514,6 +523,12 @@ for(window in candidate_regions$window){
     candidate_regions[window, "filter_reason"] = NA
   }else{
     candidate_regions[window, "filter_reason"] = paste(unique(reasons), collapse = ";")
+  }
+
+  if(length(review_reasons) == 0){
+    candidate_regions[window, "flagged_reason"] = NA
+  }else{
+    candidate_regions[window, "flagged_reason"] = paste(unique(review_reasons), collapse = ";")
   }
 }
 
@@ -528,7 +543,7 @@ if (dim(candidate_regions)[1]==0){
     tumor_nontelomeric_ratio_all=NA, tumor_nontelomeric_clip_ratio_all_reads=NA,
     control_all_reads_at_site=NA, control_clipped_reads_at_site=NA, control_telomeric_clipped_reads_at_site=NA,
     control_telomeric_clip_ratio_all=NA, control_clipped_ratio_all=NA, control_telomeric_clip_ratio_clipped=NA,
-    passed=NA, flagged_for_review=NA, filter_reason=NA
+    passed=NA, flagged_for_review=NA, filter_reason=NA, flagged_reason=NA
   )[numeric(0), ]
 }
 

@@ -590,7 +590,7 @@ rule make_bed_for_visualization:
     output:
         outfile1=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_out/{pid}_telomere_insertions.bed',
         outfile2=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-        outfile3=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed'
+        outfile3=TELOMEREINSERTION_DIR + '/plots/bedfiles/flagged/{pid}_telomere_insertions_review_flagged.bed'
     resources:
         mem_mb=_mem_to_mb("100m"),
         runtime=_hms_to_minutes("0:10:00")
@@ -607,7 +607,7 @@ if len(SAMPLES) == 2:
     rule visualize_zoomed_in:
         input:
             bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed',
+            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/flagged/{pid}_telomere_insertions_review_flagged.bed',
             tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
             control_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[1]),
             discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
@@ -650,7 +650,7 @@ elif len(SAMPLES) == 1:
     rule visualize_zoomed_in:
         input:
             bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions.bed',
-            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/zoomed_in/{pid}_telomere_insertions_review_flagged.bed',
+            review_bed=TELOMEREINSERTION_DIR + '/plots/bedfiles/flagged/{pid}_telomere_insertions_review_flagged.bed',
             tumor_bam=lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
             discordant_reads_tumor=TELOMEREINSERTION_DIR + '/tables/{pid}_' + SAMPLES[0] + '_discordant_reads_filtered_with_mapq.tsv',
             clipped_reads_tumor=TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_' + SAMPLES[0] + '_clipped_reads.tsv'
