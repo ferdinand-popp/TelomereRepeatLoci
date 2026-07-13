@@ -31,13 +31,22 @@ options(scipen = 999)
 candidate_regions = read.table(candidate_region_file, header=TRUE, sep = "\t", stringsAsFactors=FALSE)
 row.names(candidate_regions) = candidate_regions$window
 
+n_windows = nrow(candidate_regions)
+cat(sprintf("[find_fusion_reads] bam: %s\n", bamfile))
+cat(sprintf("[find_fusion_reads] searching %d candidate regions for clipped/fusion reads\n", n_windows))
+
 clipped_reads_list = list()
+progress_step = max(1, round(n_windows / 10))
 
 
-for(window in candidate_regions$window){
-  
-  print(window) # for debugging
-  
+for(window_idx in seq_along(candidate_regions$window)){
+
+  window = candidate_regions$window[window_idx]
+
+  if(window_idx %% progress_step == 0 || window_idx == n_windows){
+    cat(sprintf("[find_fusion_reads] processed %d/%d candidate regions\n", window_idx, n_windows))
+  }
+
   chrom = candidate_regions[window, "chrom"]
   chromStart = candidate_regions[window, "chromStart"]
   chromEnd = candidate_regions[window, "chromEnd"]
@@ -255,7 +264,13 @@ if(is.null(clipped_reads_all)){
                                  TTAGGG_count=NA, CCCTAA_count=NA, expected_pos_fusion=NA)[numeric(0), ]
 }
 
-write.table(clipped_reads_all, file=outfile, quote=FALSE, row.names = FALSE, sep="\t") 
+n_clipped_reads = sum(!is.na(clipped_reads_all$read_name))
+n_telomeric = sum(clipped_reads_all$part_telomere, na.rm=TRUE)
+cat(sprintf("[find_fusion_reads] found %d clipped/fusion reads across %d candidate regions (%d containing telomere repeats)\n",
+            n_clipped_reads, n_windows, n_telomeric))
+cat(sprintf("[find_fusion_reads] writing output to %s\n", outfile))
+
+write.table(clipped_reads_all, file=outfile, quote=FALSE, row.names = FALSE, sep="\t")
 
 
 #############################################################################################################
