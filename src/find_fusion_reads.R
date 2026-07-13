@@ -38,22 +38,27 @@ run_samtools_view = function(bamfile, region, extra_args = character(0)){
 # both a shell-injection risk (read names and SA tags come from BAM content, not from this
 # script) and unreliable (grep treats the read name as a regex, so special characters or
 # substring matches could grab the wrong read).
-parse_sam_lines = function(lines){
+# need_tags=FALSE skips reconstructing the (often large) SA/tag string for callers that never
+# look at it (e.g. the soft-clip pass) - reassembling it was the dominant cost per line.
+parse_sam_lines = function(lines, need_tags = TRUE){
   if(length(lines)==0){
     return(data.frame(read_name=character(0), flag=character(0), start=numeric(0),
                        cigar=character(0), sequence=character(0), tags=character(0),
                        stringsAsFactors=FALSE))
   }
-  fields = strsplit(lines, "\t")
-  data.frame(
-    read_name = vapply(fields, `[`, character(1), 1),
-    flag      = vapply(fields, `[`, character(1), 2),
-    start     = as.numeric(vapply(fields, `[`, character(1), 4)),
-    cigar     = vapply(fields, `[`, character(1), 6),
-    sequence  = vapply(fields, `[`, character(1), 10),
-    tags      = vapply(fields, function(x) paste(x[-(1:11)], collapse="\t"), character(1)),
+  fields = strsplit(lines, "\t", fixed=TRUE)
+  # one pass over `fields` for the 5 fixed-position columns instead of one vapply() per column
+  core = vapply(fields, function(x) x[c(1L, 2L, 4L, 6L, 10L)], character(5))
+  df = data.frame(
+    read_name = core[1, ],
+    flag      = core[2, ],
+    start     = as.numeric(core[3, ]),
+    cigar     = core[4, ],
+    sequence  = core[5, ],
     stringsAsFactors = FALSE
   )
+  df$tags = if(need_tags) vapply(fields, function(x) paste(x[-(1:11)], collapse="\t"), character(1)) else NA_character_
+  df
 }
 
 #----------------------------------------------------------------------
@@ -79,7 +84,7 @@ for(window in candidate_regions$window){
   # get soft-clipped reads in candidate region
   #----------------------------------------------------------------------
   region = paste0(chrom, ":", chromStart-300, "-", chromEnd+300)
-  sam_fields = parse_sam_lines(run_samtools_view(bamfile, region))
+  sam_fields = parse_sam_lines(run_samtools_view(bamfile, region), need_tags = FALSE)
 
   # extract read names
   read_names = sam_fields$read_name
