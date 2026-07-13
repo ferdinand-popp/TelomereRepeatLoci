@@ -222,7 +222,16 @@ def get_telomerehunter_intratelomeric_bam(pid_name, sample_name):
         custom_path = th_bam_files_by_pid.get(pid_name, {}).get(sample_name, "")
         if custom_path:
             return custom_path
-    return f"{TELOMEREHUNTER_DIR}/{pid_name}/{sample_name}_TelomerCnt_{pid_name}/{pid_name}_filtered_intratelomeric.bam"
+    standard_path = f"{TELOMEREHUNTER_DIR}/{pid_name}/{sample_name}_TelomerCnt_{pid_name}/{pid_name}_filtered_intratelomeric.bam"
+    # Some TelomereHunter output directories duplicate the pid as an extra
+    # nesting level (e.g. {telomerehunter_dir}/{pid}/{pid}/{sample}_TelomerCnt_{pid}/...).
+    # Prefer the standard path if it already exists on disk; otherwise fall
+    # back to the doubled-pid layout when that's what's actually present.
+    if skip_telomerehunter and not os.path.exists(standard_path):
+        doubled_pid_path = f"{TELOMEREHUNTER_DIR}/{pid_name}/{pid_name}/{sample_name}_TelomerCnt_{pid_name}/{pid_name}_filtered_intratelomeric.bam"
+        if os.path.exists(doubled_pid_path):
+            return doubled_pid_path
+    return standard_path
 
 
 if config["pids"] == "all":
