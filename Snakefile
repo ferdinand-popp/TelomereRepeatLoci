@@ -341,7 +341,7 @@ if len(SAMPLES) == 2:
         TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[1] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
     ]
     telomerehunter_shell_extra = "-ibc {input[1]}"
-    telomerehunter_threads = 2
+    telomerehunter_threads = 10
 elif len(SAMPLES) == 1:
     input_list = [
         lambda wildcards: get_alignment_bam(wildcards.pid, SAMPLES[0]),
@@ -351,7 +351,7 @@ elif len(SAMPLES) == 1:
         TELOMEREHUNTER_DIR + '/{pid}/' + SAMPLES[0] + '_TelomerCnt_{pid}/{pid}_filtered_intratelomeric.bam'
     ]
     telomerehunter_shell_extra = ""
-    telomerehunter_threads = 1
+    telomerehunter_threads = 10
 
 if not skip_telomerehunter:
     rule run_telomerehunter:
@@ -361,8 +361,8 @@ if not skip_telomerehunter:
             output_list
         threads: telomerehunter_threads
         resources:
-            mem_mb=_mem_to_mb("150m"),
-            runtime=_hms_to_minutes("24:00:00")
+            mem_mb=_mem_to_mb("1000m"),
+            runtime=_hms_to_minutes("4:00:00")
         params:
             jobname="{pid}_telomerehunter",
             sleep_sec_limit=config["sleep_sec_limit"],
@@ -410,7 +410,7 @@ rule add_mate_mapq:
         TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv'
     resources:
         mem_mb=_mem_to_mb("100m"),
-        runtime=_hms_to_minutes("50:00:00")
+        runtime=_hms_to_minutes("5:00:00")
     params:
         jobname="{pid}_add_mate_mapq_{sample}",
         sleep_sec_limit=config["sleep_sec_limit"],
