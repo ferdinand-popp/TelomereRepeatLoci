@@ -24,12 +24,28 @@ options(scipen = 999)
 
 windowTable = read.table(window_file, header=TRUE, sep="\t", comment.char='', stringsAsFactors=FALSE)
 
+n_windows_total = nrow(windowTable)
+cat(sprintf("[get_candidate_regions] read %d windows from %s\n", n_windows_total, window_file))
+cat(sprintf("[get_candidate_regions] thresholds: tumor_discordant_read_count >= %s, control_discordant_read_count <= %s\n",
+            tumor_discordant_read_lower_limit, control_discordant_read_upper_limit))
+
 #------------------------------------------------------------------------------------
 # filter by tumor and control discordant read thresholds
 #------------------------------------------------------------------------------------
-candidate_regions = windowTable[
-  windowTable$tumor_discordant_read_count >= tumor_discordant_read_lower_limit &
-    windowTable$control_discordant_read_count <= control_discordant_read_upper_limit, ]
+pass_tumor = windowTable$tumor_discordant_read_count >= tumor_discordant_read_lower_limit
+pass_control = windowTable$control_discordant_read_count <= control_discordant_read_upper_limit
+
+cat(sprintf("[get_candidate_regions] %d/%d windows pass tumor threshold\n", sum(pass_tumor), n_windows_total))
+cat(sprintf("[get_candidate_regions] %d/%d windows pass control threshold\n", sum(pass_control), n_windows_total))
+
+candidate_regions = windowTable[pass_tumor & pass_control, ]
+
+cat(sprintf("[get_candidate_regions] %d/%d windows pass both thresholds\n", nrow(candidate_regions), n_windows_total))
+
+if (nrow(candidate_regions) == 0) {
+  cat(sprintf("[get_candidate_regions] max tumor_discordant_read_count in input: %s\n",
+              ifelse(n_windows_total > 0, max(windowTable$tumor_discordant_read_count, na.rm=TRUE), NA)))
+}
 
 # Ensure required output columns exist even if blacklist filtering is disabled
 candidate_regions$blacklist_overlap_frac = 0
@@ -58,6 +74,9 @@ if (consider_blacklist == "True" && ("blacklist_overlap_frac" %in% colnames(cand
     )
   }
 
+  cat(sprintf("[get_candidate_regions] %d/%d candidates excluded by blacklist (>=50%% coverage)\n",
+              length(idx_excl), nrow(candidate_regions)))
+
   # final candidate output excludes blacklisted candidates
   candidate_regions = candidate_regions[!candidate_regions$blacklist_excluded, ]
 } else if (consider_blacklist == "True" && ("blacklisted" %in% colnames(candidate_regions))) {
@@ -77,8 +96,14 @@ if (consider_blacklist == "True" && ("blacklist_overlap_frac" %in% colnames(cand
     )
   }
 
+  cat(sprintf("[get_candidate_regions] %d/%d candidates excluded by blacklist (legacy yes/no column)\n",
+              length(idx_excl), nrow(candidate_regions)))
+
   candidate_regions = candidate_regions[!candidate_regions$blacklist_excluded, ]
 }
+
+cat(sprintf("[get_candidate_regions] %d final candidate regions (from %d input windows)\n",
+            nrow(candidate_regions), n_windows_total))
 
 #------------------------------------------------------------------------------------
 # save raw and filtered results
