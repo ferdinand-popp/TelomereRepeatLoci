@@ -373,7 +373,8 @@ if not skip_telomerehunter:
         shell:
             "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
             "set +u; module load Micromamba/2.0.2-0; set -u; "
-            "time micromamba run -n telomereEnv telomerehunter2 -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all &>> {log}"
+            "mkdir -p $(dirname {log}); "
+            "time micromamba run -n telomereEnv telomerehunter2 -p {wildcards.pid} -o {params.telomerehunter_dir} -ibt {input[0]} {params.extra}-pff all 2>&1 | tee -a {log}"
 else:
     logger.info("skip_telomerehunter=true -> run_telomerehunter rule disabled; assuming existing TelomereHunter2 outputs.")
 
@@ -399,7 +400,8 @@ rule find_discordant_reads:
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
         "set +u; module load Micromamba/2.0.2-0; set -u; "
-        "micromamba run -n telomereEnv python {params.src_dir}/find_discordant_reads.py -i {input} -o {output} &>> {log}"
+        "mkdir -p $(dirname {log}); "
+        "micromamba run -n telomereEnv python {params.src_dir}/find_discordant_reads.py -i {input} -o {output} 2>&1 | tee -a {log}"
 
 
 #------------------------------------------------------------------
@@ -424,7 +426,8 @@ rule add_mate_mapq:
     shell:
         "sleep $((1 + RANDOM % {params.sleep_sec_limit}))s; "
         "set +u; module load Micromamba/2.0.2-0; set -u; "
-        "micromamba run -n telomereEnv python {params.src_dir}/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output} &>> {log}"
+        "mkdir -p $(dirname {log}); "
+        "micromamba run -n telomereEnv python {params.src_dir}/add_mate_mapq.py -i {input.discordant_reads} -b {input.bam} -o {output} 2>&1 | tee -a {log}"
 
 
 #------------------------------------------------------------------
@@ -467,8 +470,9 @@ rule count_discordant_reads:
         tumor=tumor_input,
         control=control_input
     shell:
+        "mkdir -p $(dirname {log}); "
         "(R --no-save --slave --args -t {params.tumor} -c {params.control} -b {params.blacklist} "
-        "-o {output.windowTable} -f {params.r_function_file} < {params.src_dir}/count_discordant_reads.R) &>> {log}"
+        "-o {output.windowTable} -f {params.r_function_file} < {params.src_dir}/count_discordant_reads.R) 2>&1 | tee -a {log}"
 
 
 #------------------------------------------------------------------
@@ -493,9 +497,10 @@ rule get_candidate_regions:
         control_discordant_read_upper_limit=config["control_discordant_read_upper_limit"],
         consider_blacklist="True" if _is_enabled_config_path(config.get("blacklist")) else "False"
     shell:
+        "mkdir -p $(dirname {log}); "
         "(R --no-save --slave --args {input.windowTable} {output.candidateRegions} "
         "{params.tumor_discordant_read_lower_limit} {params.control_discordant_read_upper_limit} "
-        "{params.consider_blacklist} {params.r_function_file} < {params.src_dir}/get_candidate_regions.R) &>> {log}"
+        "{params.consider_blacklist} {params.r_function_file} < {params.src_dir}/get_candidate_regions.R) 2>&1 | tee -a {log}"
 
 
 #------------------------------------------------------------------
@@ -523,8 +528,9 @@ rule find_fusion_reads:
         r_function_file=R_FUNCTION_FILE,
         src_dir=SRC_DIR
     shell:
+        "mkdir -p $(dirname {log}); "
         "(R --no-save --slave --args {input.candidateRegions} {input.bam} {output} "
-        "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R) &>> {log}"
+        "{params.r_function_file} < {params.src_dir}/find_fusion_reads.R) 2>&1 | tee -a {log}"
 
 if len(SAMPLES) == 2:
 
@@ -552,6 +558,7 @@ if len(SAMPLES) == 2:
             max_control_tel_reads=MAX_CONTROL_TEL_READS
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
+            "mkdir -p $(dirname {log}); "
             "(R --no-save --slave --args "
             "--candidate_region_file {input.candidateRegions} "
             "--clipped_reads_file {input.clippedReads} "
@@ -564,7 +571,7 @@ if len(SAMPLES) == 2:
             "--min_site_support {params.min_site_support} "
             "--max_control_tel_ratio {params.max_control_tel_ratio} "
             "--max_control_tel_reads {params.max_control_tel_reads} "
-            "< {params.src_dir}/predict_insertion_sites.R) &>> {log}"
+            "< {params.src_dir}/predict_insertion_sites.R) 2>&1 | tee -a {log}"
 
 elif len(SAMPLES) == 1:
 
@@ -590,6 +597,7 @@ elif len(SAMPLES) == 1:
             max_control_tel_reads=MAX_CONTROL_TEL_READS
         message: "--- {wildcards.pid}: predict insertion sites ---"
         shell:
+            "mkdir -p $(dirname {log}); "
             "(R --no-save --slave --args "
             "--candidate_region_file {input.candidateRegions} "
             "--clipped_reads_file {input.clippedReads} "
@@ -600,7 +608,7 @@ elif len(SAMPLES) == 1:
             "--min_site_support {params.min_site_support} "
             "--max_control_tel_ratio {params.max_control_tel_ratio} "
             "--max_control_tel_reads {params.max_control_tel_reads} "
-            "< {params.src_dir}/predict_insertion_sites.R) &>> {log}"
+            "< {params.src_dir}/predict_insertion_sites.R) 2>&1 | tee -a {log}"
 
 #------------------------------------------------------------------
 # get consensus sequence of insertion (and bases in sequence microhomology)
@@ -624,8 +632,9 @@ rule get_consensus:
         reference_fasta=REFERENCE_FASTA
     message: "--- {wildcards.pid}: get consensus ---"
     shell:
+        "mkdir -p $(dirname {log}); "
         "(R --no-save --slave --args {input.candidateRegions} {input.clippedReads} {output} "
-        "{params.reference_fasta} {params.r_function_file} < {params.src_dir}/get_consensus.R) &>> {log}"
+        "{params.reference_fasta} {params.r_function_file} < {params.src_dir}/get_consensus.R) 2>&1 | tee -a {log}"
 
 
 #------------------------------------------------------------------
@@ -648,8 +657,9 @@ rule make_bed_for_visualization:
         jobname="{pid}_make_bed",
         src_dir=SRC_DIR
     shell:
+        "mkdir -p $(dirname {log}); "
         "(R --no-save --slave --args {input.candidateRegions} {output.outfile1} {output.outfile2} {output.outfile3} "
-        "{wildcards.pid} < {params.src_dir}/make_bed_for_visualization.R) &>> {log}"
+        "{wildcards.pid} < {params.src_dir}/make_bed_for_visualization.R) 2>&1 | tee -a {log}"
 
 
 if len(SAMPLES) == 2:
@@ -680,6 +690,7 @@ if len(SAMPLES) == 2:
             review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
             """
+            mkdir -p $(dirname {log})
             (sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
             set +u; module load Micromamba/2.0.2-0; set -u
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
@@ -695,7 +706,7 @@ if len(SAMPLES) == 2:
                 --prefix {params.prefix} \
                 --review_bed {input.review_bed} \
                 --review_prefix {params.review_prefix} \
-                --outfile {output}) &>> {log}
+                --outfile {output}) 2>&1 | tee -a {log}
             """
 
 elif len(SAMPLES) == 1:
@@ -723,6 +734,7 @@ elif len(SAMPLES) == 1:
             review_prefix=TELOMEREINSERTION_DIR + "/plots/flagged/"
         shell:
             """
+            mkdir -p $(dirname {log})
             (sleep $((1 + RANDOM % {params.sleep_sec_limit}))s
             set +u; module load Micromamba/2.0.2-0; set -u
             micromamba run -n telomereEnv python {params.src_dir}/visualize_telomere_insertions.py \
@@ -735,5 +747,5 @@ elif len(SAMPLES) == 1:
                 --prefix {params.prefix} \
                 --review_bed {input.review_bed} \
                 --review_prefix {params.review_prefix} \
-                --outfile {output}) &>> {log}
+                --outfile {output}) 2>&1 | tee -a {log}
             """
