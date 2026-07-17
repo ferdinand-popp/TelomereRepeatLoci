@@ -92,7 +92,7 @@ count_reads_at_site = function(bamfile, chrom, site_pos){
   if(is.na(site_pos)){
     return(NA)
   }
-  view_cmd = paste0("samtools view ", bamfile, " ", chrom, ":", site_pos, "-", site_pos)
+  view_cmd = paste0("samtools view -F 1024 ", bamfile, " ", chrom, ":", site_pos, "-", site_pos)
   sam_lines = system(view_cmd, intern=TRUE)
   return(length(sam_lines))
 }
