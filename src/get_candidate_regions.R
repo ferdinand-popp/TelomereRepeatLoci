@@ -48,8 +48,10 @@ if (nrow(candidate_regions) == 0) {
 }
 
 # Ensure required output columns exist even if blacklist filtering is disabled
-candidate_regions$blacklist_overlap_frac = 0
-candidate_regions$blacklist_excluded = FALSE
+# (use rep() rather than a bare scalar: assigning a scalar to a new column on a
+# 0-row data.frame errors in base R - "replacement has 1 row, data has 0")
+candidate_regions$blacklist_overlap_frac = rep(0, nrow(candidate_regions))
+candidate_regions$blacklist_excluded = rep(FALSE, nrow(candidate_regions))
 if (!("exclusion_reason" %in% colnames(candidate_regions))) {
   candidate_regions$exclusion_reason = ""
 }
