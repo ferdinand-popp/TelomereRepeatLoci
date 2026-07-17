@@ -389,7 +389,7 @@ rule find_discordant_reads:
     output:
         TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads.tsv'
     log:
-        TELOMEREINSERTION_DIR + '/logs/{pid}.log'
+        TELOMEREINSERTION_DIR + '/logs/{pid}_{sample}.log'
     resources:
         mem_mb=_mem_to_mb("150m"),
         runtime=_hms_to_minutes("0:59:00")
@@ -415,7 +415,7 @@ rule add_mate_mapq:
     output:
         TELOMEREINSERTION_DIR + '/tables/{pid}_{sample}_discordant_reads_filtered_with_mapq.tsv'
     log:
-        TELOMEREINSERTION_DIR + '/logs/{pid}.log'
+        TELOMEREINSERTION_DIR + '/logs/{pid}_{sample}.log'
     resources:
         mem_mb=_mem_to_mb("100m"),
         runtime=_hms_to_minutes("5:00:00")
