@@ -464,10 +464,10 @@ for(window in unique(clipped_reads_all$window)){
 # final pass / review classification
 #--------------------------------------------------------------------------------------------------
 
-candidate_regions[, "passed"] = FALSE
-candidate_regions[, "flagged_for_review"] = FALSE
-candidate_regions[, "filter_reason"] = NA
-candidate_regions[, "flagged_reason"] = NA
+candidate_regions[, "passed"] = rep(FALSE, nrow(candidate_regions))
+candidate_regions[, "flagged_for_review"] = rep(FALSE, nrow(candidate_regions))
+candidate_regions[, "filter_reason"] = rep(NA, nrow(candidate_regions))
+candidate_regions[, "flagged_reason"] = rep(NA, nrow(candidate_regions))
 
 for(window in candidate_regions$window){
   insertion_site = candidate_regions[window, "insertion_site"]

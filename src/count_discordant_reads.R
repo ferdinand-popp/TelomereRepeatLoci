@@ -235,9 +235,11 @@ for (window1 in windowCountMerged[windowCountMerged$tumor_discordant_read_count 
 # ------------------------------------------------------------------------------------
 
 # defaults
-windowCountMerged$blacklist_overlap_frac <- 0
-windowCountMerged$blacklist_excluded <- FALSE
-windowCountMerged$blacklisted <- "no"  # legacy-compatible column
+# (use rep() rather than a bare scalar: assigning a scalar to a new column on a
+# 0-row data.frame errors in base R - "replacement has 1 row, data has 0")
+windowCountMerged$blacklist_overlap_frac <- rep(0, nrow(windowCountMerged))
+windowCountMerged$blacklist_excluded <- rep(FALSE, nrow(windowCountMerged))
+windowCountMerged$blacklisted <- rep("no", nrow(windowCountMerged))  # legacy-compatible column
 
 # try ENCODE BED(.gz) first
 blacklist_bed <- read_blacklist_as_bed(blacklist_file)
@@ -272,9 +274,9 @@ if (!is.null(blacklist_bed) && nrow(blacklist_bed) > 0) {
     windowCountMerged$blacklist_overlap_frac <- ifelse(windowCountMerged$blacklist_excluded, 1, 0)
   } else {
     # no usable blacklist provided
-    windowCountMerged$blacklisted <- NA
-    windowCountMerged$blacklist_excluded <- FALSE
-    windowCountMerged$blacklist_overlap_frac <- 0
+    windowCountMerged$blacklisted <- rep(NA, nrow(windowCountMerged))
+    windowCountMerged$blacklist_excluded <- rep(FALSE, nrow(windowCountMerged))
+    windowCountMerged$blacklist_overlap_frac <- rep(0, nrow(windowCountMerged))
   }
 }
 

@@ -53,7 +53,7 @@ if (nrow(candidate_regions) == 0) {
 candidate_regions$blacklist_overlap_frac = rep(0, nrow(candidate_regions))
 candidate_regions$blacklist_excluded = rep(FALSE, nrow(candidate_regions))
 if (!("exclusion_reason" %in% colnames(candidate_regions))) {
-  candidate_regions$exclusion_reason = ""
+  candidate_regions$exclusion_reason = rep("", nrow(candidate_regions))
 }
 
 #------------------------------------------------------------------------------------
