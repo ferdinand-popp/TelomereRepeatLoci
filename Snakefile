@@ -519,7 +519,7 @@ rule find_fusion_reads:
     output:
         TELOMEREINSERTION_DIR + '/clipped_reads/{pid}_{sample}_clipped_reads.tsv'
     log:
-        TELOMEREINSERTION_DIR + '/logs/{pid}.log'
+        TELOMEREINSERTION_DIR + '/logs/{pid}_{sample}.log'
     resources:
         mem_mb=_mem_to_mb("1g"),
         runtime=_hms_to_minutes("100:00:00")
