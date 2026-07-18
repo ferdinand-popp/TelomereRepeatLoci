@@ -88,13 +88,20 @@ if(count_control){
 # helper functions
 #--------------------------------------------------------------------------------------------------
 
-count_reads_at_site = function(bamfile, chrom, site_pos){
+# Unique read names (QNAME) of reads whose *aligned* span overlaps site_pos.
+# This misses reads that are soft-/hard-clipped before reaching site_pos (their
+# aligned span doesn't cover the position even though the clipped part does) -
+# those are recovered separately via the clipped_reads table and unioned in below.
+read_names_at_site = function(bamfile, chrom, site_pos){
   if(is.na(site_pos)){
-    return(NA)
+    return(character(0))
   }
   view_cmd = paste0("samtools view -F 1024 ", bamfile, " ", chrom, ":", site_pos, "-", site_pos)
   sam_lines = system(view_cmd, intern=TRUE)
-  return(length(sam_lines))
+  if(length(sam_lines) == 0){
+    return(character(0))
+  }
+  unique(sapply(strsplit(sam_lines, "\t"), function(x) x[1]))
 }
 
 clip_interval_overlaps_site = function(start, end, site_pos){
@@ -191,13 +198,15 @@ read_clipped_at_site = function(start, end, cigar, site_pos){
 }
 
 count_unique_clipped_reads_at_site = function(clipped_reads, site_pos){
+  empty_result = list(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA, read_names=character(0))
+
   if(is.na(site_pos) || dim(clipped_reads)[1] == 0){
-    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
+    return(empty_result)
   }
 
   needed_cols = c("read_name", "start", "end", "cigar", "part_telomere")
   if(any(!(needed_cols %in% colnames(clipped_reads)))){
-    return(data.frame(clipped_reads_at_site=NA, telomeric_clipped_reads_at_site=NA))
+    return(empty_result)
   }
 
   clipped_reads$start = as.numeric(clipped_reads$start)
@@ -215,22 +224,36 @@ count_unique_clipped_reads_at_site = function(clipped_reads, site_pos){
   clipped_at_site = clipped_reads[keep, ]
 
   if(dim(clipped_at_site)[1] == 0){
-    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
+    return(list(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0, read_names=character(0)))
   }
 
   clipped_at_site = clipped_at_site[!is.na(clipped_at_site$read_name) & clipped_at_site$read_name != "", ]
   if(dim(clipped_at_site)[1] == 0){
-    return(data.frame(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0))
+    return(list(clipped_reads_at_site=0, telomeric_clipped_reads_at_site=0, read_names=character(0)))
   }
 
   clipped_at_site_unique = clipped_at_site[!duplicated(clipped_at_site$read_name), ]
   clipped_count = dim(clipped_at_site_unique)[1]
   telomeric_count = sum(!is.na(clipped_at_site_unique$part_telomere) & clipped_at_site_unique$part_telomere)
 
-  return(data.frame(
+  return(list(
     clipped_reads_at_site=clipped_count,
-    telomeric_clipped_reads_at_site=telomeric_count
+    telomeric_clipped_reads_at_site=telomeric_count,
+    read_names=clipped_at_site_unique$read_name
   ))
+}
+
+# Total distinct reads "at" the site: reads samtools finds spanning site_pos
+# (via their aligned reference footprint) unioned with reads that are
+# soft-/hard-clipped at the site (their clip footprint overlaps site_pos but
+# their aligned span may not reach it). Deduplicated by read_name so a read
+# counted by samtools that is also in the clipped table isn't counted twice.
+count_reads_at_site = function(bamfile, chrom, site_pos, clipped_read_names){
+  if(is.na(site_pos)){
+    return(NA)
+  }
+  bam_names = read_names_at_site(bamfile, chrom, site_pos)
+  length(union(bam_names, clipped_read_names))
 }
 
 ##########################################################################################################################
@@ -408,8 +431,8 @@ for(window in unique(clipped_reads_all$window)){
   site_pos = as.numeric(candidate_regions[window, "insertion_site"]) + site_offset
   candidate_regions[window, "site_pos_used"] = site_pos
 
-  candidate_regions[window, "tumor_all_reads_at_site"] = count_reads_at_site(bamfile_tumor, chrom, site_pos)
   tumor_clipped_counts = count_unique_clipped_reads_at_site(clipped_reads, site_pos)
+  candidate_regions[window, "tumor_all_reads_at_site"] = count_reads_at_site(bamfile_tumor, chrom, site_pos, tumor_clipped_counts$read_names)
   candidate_regions[window, "tumor_clipped_reads_at_site"] = tumor_clipped_counts$clipped_reads_at_site
   candidate_regions[window, "tumor_telomeric_clipped_reads_at_site"] = tumor_clipped_counts$telomeric_clipped_reads_at_site
   candidate_regions[window, "tumor_telomeric_clip_ratio_all"] = ratio_or_na(
@@ -434,8 +457,8 @@ for(window in unique(clipped_reads_all$window)){
   )
 
   if(count_control){
-    candidate_regions[window, "control_all_reads_at_site"] = count_reads_at_site(bamfile_control, chrom, site_pos)
     control_clipped_counts = count_unique_clipped_reads_at_site(clipped_reads_control_all, site_pos)
+    candidate_regions[window, "control_all_reads_at_site"] = count_reads_at_site(bamfile_control, chrom, site_pos, control_clipped_counts$read_names)
     candidate_regions[window, "control_clipped_reads_at_site"] = control_clipped_counts$clipped_reads_at_site
     candidate_regions[window, "control_telomeric_clipped_reads_at_site"] = control_clipped_counts$telomeric_clipped_reads_at_site
     candidate_regions[window, "control_telomeric_clip_ratio_all"] = ratio_or_na(
