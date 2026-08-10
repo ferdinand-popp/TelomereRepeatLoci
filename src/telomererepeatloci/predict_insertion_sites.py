@@ -141,19 +141,19 @@ def predict_insertions(
             elif strand == "-" and start is not None and start < med:
                 filtered_pos.append(r)
 
-        pos_to_cigars = defaultdict(set)
+        pos_to_reads = defaultdict(set)
         for r in filtered_pos:
             pos = parse_int(r.get(clipped_col))
             if pos is None:
                 continue
-            pos_to_cigars[pos].add(r.get("cigar", ""))
+            pos_to_reads[pos].add(r.get("read_name", ""))
 
-        if not pos_to_cigars:
+        if not pos_to_reads:
             continue
 
-        best_unique = max(len(cigars) for cigars in pos_to_cigars.values())
+        best_count = max(len(reads) for reads in pos_to_reads.values())
         insertion_candidates = [
-            pos for pos, cigars in pos_to_cigars.items() if len(cigars) == best_unique
+            pos for pos, reads in pos_to_reads.items() if len(reads) == best_count
         ]
 
         if len(insertion_candidates) != 1:
@@ -162,7 +162,7 @@ def predict_insertions(
         insertion_site = insertion_candidates[0]
         region["insertion_site"] = str(insertion_site)
         region["pos_telomeres_from_insertion"] = expected_pos
-        region["reads_supporting_insertion_pos"] = str(best_unique)
+        region["reads_supporting_insertion_pos"] = str(best_count)
 
         at_insertion = [
             r for r in filtered_pos if parse_int(r.get(clipped_col)) == insertion_site
