@@ -178,7 +178,7 @@ def predict_insertions(
         elif sum_c > sum_t:
             region["repeat_forward"] = "CCCTAA"
 
-    output_df = pd.DataFrame(candidate_rows)
+    output_df = pd.DataFrame(candidate_rows, columns=output_fields)
     return output_df, output_fields
 
 
