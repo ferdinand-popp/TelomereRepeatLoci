@@ -91,7 +91,69 @@ Assuming that the telomere sequence at the repeat locus consists exclusively of 
 #### 5. Make IGV-like plot
 To rule out remaining false positives, each telomere repeat locus should be checked manually. To facilitate this process, Integrative Genomics Viewer (IGV)-like plots of each telomere repeat locus are made. The script `make_bed_for_visualization.py` makes tables in BED format that contain the reference genome start and end positions used for the plots, which are 100 bp up- and downstream of the telomere repeat locus. This table is then used as input for the script visualize_telomere_insertions.py. The script was adapted from [here](https://github.com/DKFZ-ODCF/IndelCallingWorkflow/blob/master/resources/analysisTools/indelCallingWorkflow/visualize.py). Given the alignment BAM files of the tumor and control sample, the script generates a PDF file for each genomic region in the input BED file, in which the reads surrounding the telomere repeat loci are displayed in the tumor and in the control sample. Moreover, panels with the coverage in the region are plotted. Several new features were added to the original script: the discordant reads obtained in previous steps of the TelomereRepeatLoci pipeline are highlighted, hard- clipped bases are obtained from the primary alignments and displayed, non-telomeric clipped bases are transparent, while telomeric clipped bases remain opaque. With the resulting images, tumor and control sample can easily be compared and artifact-prone regions, e.g. with a lot of clipped reads, can be identified.
 
-#### 6. Manual review of predicted insertions
+#### 6. Site-level confidence diagnostics
+
+For each candidate region with a predicted `insertion_site`, `assess_site_confidence.py` adds a set of
+diagnostic columns to help spot two common sources of false positives: generically noisy/repetitive loci,
+and germline/artifactual signal that is also present in the control. These columns are added on top of the
+consensus table — nothing is dropped or filtered by this step.
+
+`find_fusion_reads.py` is now also run against the control BAM (mirroring the existing tumor step), producing
+a control clipped-reads table, so control's clipped reads at each site can be examined directly rather than
+only contributing to the discordant-read-count filter from step 2.
+
+For the tumor sample, reads covering a `--site-window` bp flank (default 100 bp, matching the zoomed-in plot
+window) around `insertion_site` are fetched from the original `--tumor-bam` (duplicates excluded), giving
+`all_reads_at_site`. Among the clipped reads already found for that candidate region, those whose own clip
+position (the "end" of a downstream/`+` clip, or "start" of an upstream/`-` clip) lands exactly at
+`insertion_site` are counted as `clipped_reads_at_site`, with the telomeric subset as `telo_clipped_reads_at_site`.
+`tumor_noise_ratio = (clipped_reads_at_site - telo_clipped_reads_at_site) / all_reads_at_site` — a high value means
+most of the clipping activity at that exact base is unrelated to a telomere junction, i.e. a generically messy
+locus (including chromosome-end fade-outs, where `all_reads_at_site` naturally drops).
+
+For the control sample (if `--control-bam` is given), the same depth count gives `control_all_reads_at_site`,
+and clipped reads at the exact `insertion_site`, matching the same strand-implied orientation as the tumor call
+and telomeric, are counted as `control_telo_clipped_at_insertion_site`. If both tumor and control have such
+reads, their clipped sequences are compared with a Hamming distance over the 12 bases starting at the breakpoint
+and reading away from it — oriented consistently for both strands (for a downstream/`+` clip that's the clip's
+first 12 bases as-is; for an upstream/`-` clip it's the *last* 12 bases of the clip, reversed, since the
+breakpoint-adjacent base there is the last character of the raw clipped substring). The minimum distance over
+all tumor/control read pairs is reported as `control_min_seq_distance_to_tumor` — a low value alongside a
+non-zero `control_telo_clipped_at_insertion_site` is a strong germline/artifact signal, since it means control
+shows essentially the same clip at the same base.
+
+Because telomere repeats are just `TTAGGG`/`CCCTAA` repeated, this distance alone is not very discriminating
+(most telomeric clips look somewhat alike within a few bases) — read it together with the raw count, not alone.
+
+Result file:
+```
+<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv
+```
+This is the consensus table (step 4) with the columns above appended.
+
+#### 7. Optional: drop low-confidence regions by threshold
+
+The diagnostics from step 6 are annotation-only by default — nothing is removed unless you opt in with
+`--filter-low-confidence-regions`, which runs `filter_by_site_confidence.py` on the table from step 6 and
+writes an additional filtered table. A region is dropped if:
+
+- `tumor_noise_ratio` is present and exceeds `--max-tumor-noise-ratio` (default `0.8`), or
+- control shows telomeric clipped reads at the insertion site (`control_telo_clipped_at_insertion_site > 0`)
+  **and either** their sequence is close enough to tumor's to count as a match
+  (`control_min_seq_distance_to_tumor <= --control-max-seq-distance`, default `2`), **or** there are simply
+  too many of them regardless of sequence similarity (`control_telo_clipped_at_insertion_site >
+  --control-max-telo-clipped-at-site`, default `2`).
+
+A region with blank/missing diagnostics (e.g. no `insertion_site`, or no control BAM) is never dropped by
+this step. These defaults are a starting point, not validated thresholds — tune them against your own data
+by comparing the kept/dropped regions against manual review (step 8) and the plots.
+
+Result file (only written when `--filter-low-confidence-regions` is set):
+```
+<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv
+```
+
+#### 8. Manual review of predicted insertions
 
 The pipeline does not classify candidate loci as true or false positives on its own — a human still has
 to look at each one. This step is manual and happens outside the CLI, but the outputs below are what
@@ -119,18 +181,23 @@ signal that is also present in the control).
 **Where results end up.** The plots are a QC aid, not the result file — they are not written back into
 any table, so exclusion decisions from manual review have to be applied by the reviewer (e.g. by
 filtering the table below on chrom + `insertion_site`, or maintaining a separate list of rejected loci).
-The single result table to carry forward is:
+The result table to carry forward is:
 
 ```
-<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv
+<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv
 ```
+
+or, if you ran with `--filter-low-confidence-regions` (step 7) and trust the thresholds you set, the
+`..._extended_with_confidence_filtered.tsv` variant with low-confidence regions already dropped.
 
 This is the final, fully annotated table: one row per predicted telomere repeat locus, combining the
 candidate-region/discordant-read counts, the predicted `insertion_site` and `reads_supporting_insertion_pos`,
-`sum_TTAGGG_count`/`sum_CCCTAA_count` and `repeat_forward` (insertion orientation), and the
-`consensus`/`flanking_seq`/`bp_microhomology` columns from the consensus step. Match a plot back to its
-row in this table via `chrom` and `insertion_site` (the same values used in the plot's filename and the
-zoomed-in BED's `pos` column).
+`sum_TTAGGG_count`/`sum_CCCTAA_count` and `repeat_forward` (insertion orientation), the
+`consensus`/`flanking_seq`/`bp_microhomology` columns from the consensus step, and the
+`tumor_noise_ratio`/`control_telo_clipped_at_insertion_site`/`control_min_seq_distance_to_tumor` diagnostic
+columns from step 6 (see above — none of these are used to filter rows automatically yet, they're there for
+you to eyeball alongside the plots). Match a plot back to its row in this table via `chrom` and
+`insertion_site` (the same values used in the plot's filename and the zoomed-in BED's `pos` column).
 
 ---
 
@@ -207,6 +274,11 @@ You can still override this with `--output-dir`.
 | `--reference-fasta` | No | `""` | Reference FASTA; required for microhomology analysis and visualization (unless `--skip-visualization`) |
 | `--skip-visualization` | No | off | Skip generation of zoomed-in IGV-like plots |
 | `--plot-min-support` | No | `2.0` | Minimum `reads_supporting_insertion_pos` required to include a region in plot BEDs |
+| `--site-window` | No | `100` | Flank (bp) around `insertion_site` used for the site-level confidence diagnostics (depth and clipped-read collection) |
+| `--filter-low-confidence-regions` | No | off | Write an additional table with regions dropped by the thresholds below, on top of the always-written unfiltered table |
+| `--max-tumor-noise-ratio` | No | `0.8` | Max allowed `tumor_noise_ratio` before a region is dropped (only used with `--filter-low-confidence-regions`) |
+| `--control-max-seq-distance` | No | `2` | Max Hamming distance (12 bp at the breakpoint) between control/tumor clipped sequences to count as a germline match (only used with `--filter-low-confidence-regions`) |
+| `--control-max-telo-clipped-at-site` | No | `2` | Max telomeric clipped reads allowed in control at the insertion site regardless of sequence match (only used with `--filter-low-confidence-regions`) |
 | `--samtoolsbin` | No | `samtools` | Path/name of the samtools binary (kept for compatibility; visualization uses pysam directly) |
 
 ## Notes
@@ -261,4 +333,4 @@ uv run telomere-repeat-loci \
   --plot-min-support 2
 ```
 
-Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_consensus.tsv` should have regions and plots should be generated for ChrX and Chr22
+Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_confidence.tsv` should have regions and plots should be generated for ChrX and Chr22

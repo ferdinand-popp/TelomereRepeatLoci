@@ -107,12 +107,30 @@ data".
 7. **`get_consensus.py`** — builds a per-position consensus telomere sequence from clipped reads
    (majority base, else "N") and computes microhomology against the reference genome
    (`--reference-fasta`) at each locus.
-8. **`make_bed_for_visualization.py`** — writes zoomed-out and zoomed-in BED files per PID,
-   filtering by `--plot-min-support` (minimum `reads_supporting_insertion_pos`).
-9. **`visualize_telomere_insertions.py`** — renders IGV-like read/coverage plots around each
-   predicted insertion using pysam directly (the `--samtoolsbin` flag is accepted for
-   compatibility but isn't load-bearing); highlights discordant reads and telomeric vs.
-   non-telomeric clipped bases. Skippable with `--skip-visualization`.
+8. **`assess_site_confidence.py`** — for candidate regions with a predicted `insertion_site`, adds
+   diagnostic (non-filtering) columns: `tumor_noise_ratio` (non-telomeric vs. telomeric clipping at
+   the exact site, relative to read depth there — high means a generically noisy/repetitive locus,
+   including chromosome-end fade-outs) and, when a control BAM is present,
+   `control_telo_clipped_at_insertion_site` / `control_min_seq_distance_to_tumor` (whether control
+   shows the same clipped-telomere signal at that exact breakpoint — a germline/artifact signal).
+   Depth and clip counts use the original `--tumor-bam`/`--control-bam` (not the filtered
+   intratelomeric BAMs) over a `--site-window` bp flank (default 100, matching the zoomed-in plot
+   window). Requires a control clipped-reads table, produced by running `find_fusion_reads.py` a
+   second time against the control BAM (see `process_sample` in `main.py`) — this is new; the
+   original pipeline only ever ran `find_fusion_reads.py` on tumor.
+9. **`filter_by_site_confidence.py`** — optional (`--filter-low-confidence-regions`, off by
+   default). Drops rows from the step-8 output whose `tumor_noise_ratio` exceeds
+   `--max-tumor-noise-ratio`, or whose control-side diagnostics indicate a germline/artifact
+   match (`control_telo_clipped_at_insertion_site > 0` and either the sequence distance is within
+   `--control-max-seq-distance` or the count exceeds `--control-max-telo-clipped-at-site`). Blank/
+   missing diagnostics never cause a drop. Writes a separate `*_filtered.tsv` file; the unfiltered
+   table from step 8 is always written regardless of this flag.
+10. **`make_bed_for_visualization.py`** — writes zoomed-out and zoomed-in BED files per PID,
+    filtering by `--plot-min-support` (minimum `reads_supporting_insertion_pos`).
+11. **`visualize_telomere_insertions.py`** — renders IGV-like read/coverage plots around each
+    predicted insertion using pysam directly (the `--samtoolsbin` flag is accepted for
+    compatibility but isn't load-bearing); highlights discordant reads and telomeric vs.
+    non-telomeric clipped bases. Skippable with `--skip-visualization`.
 
 `src/pipeline/tables.py` holds shared TSV column-name constants (`WINDOWS_COLUMNS`,
 `FUSION_READS_COLUMNS`, etc.) and `read_tsv`/`write_tsv`/`sanitize_tsv_values` helpers for
@@ -122,9 +140,14 @@ consistent, null-byte-stripped TSV I/O — used by the pipeline scripts.
 
 All outputs live under `<output-dir>/` (see `get_output_dir()`):
 - `tables/` — discordant-read tables and 1kb-window counts
-- `clipped_reads/` — per-sample clipped/fusion-read tables
+- `clipped_reads/` — per-sample clipped/fusion-read tables (tumor, and control when
+  `--control-bam` is given — see step 8 above)
 - `candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv`
-  — the final annotated result table
+  — annotated result table through the consensus step (step 7)
+- `candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv`
+  — the above plus site-confidence diagnostic columns (step 8); this is the table to use unless
+  `--filter-low-confidence-regions` was set, in which case also see the `..._filtered.tsv` variant
+  (step 9)
 - `plots/bedfiles/{zoomed_out,zoomed_in}/` — BED files driving visualization
 - `plots/zoomed_in/{pid}_done.txt` plus per-locus plot images — visualization output (unless
   `--skip-visualization`)

@@ -67,6 +67,46 @@ def parse_args():
             "Default: 100."
         ),
     )
+    parser.add_argument(
+        "--filter-low-confidence-regions",
+        action="store_true",
+        help=(
+            "Additionally write a filtered candidate-region table that drops "
+            "regions failing the site-level confidence checks (see README), "
+            "using the thresholds below. Off by default; the unfiltered, "
+            "fully annotated table is always written regardless."
+        ),
+    )
+    parser.add_argument(
+        "--max-tumor-noise-ratio",
+        type=float,
+        default=0.8,
+        help=(
+            "Maximum allowed tumor_noise_ratio before a region is dropped by "
+            "--filter-low-confidence-regions. Default: 0.8."
+        ),
+    )
+    parser.add_argument(
+        "--control-max-seq-distance",
+        type=int,
+        default=2,
+        help=(
+            "Maximum Hamming distance (over 12 bp at the breakpoint) between "
+            "a control and tumor clipped sequence at the insertion site for "
+            "it to still count as a germline match, used by "
+            "--filter-low-confidence-regions. Default: 2."
+        ),
+    )
+    parser.add_argument(
+        "--control-max-telo-clipped-at-site",
+        type=int,
+        default=2,
+        help=(
+            "Maximum number of telomeric clipped reads allowed in control at "
+            "the insertion site (regardless of sequence match) before a "
+            "region is dropped by --filter-low-confidence-regions. Default: 2."
+        ),
+    )
     parser.add_argument("--samtoolsbin", default="samtools")
 
     args = parser.parse_args()
@@ -379,6 +419,26 @@ def process_sample(args, scripts_dir):
             str(args.site_window),
         ]
     )
+
+    if args.filter_low_confidence_regions:
+        extended_with_confidence_filtered = (
+            candidate_dir
+            / f"{pid}_telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv"
+        )
+        run_command(
+            [
+                sys.executable,
+                str(scripts_dir / "filter_by_site_confidence.py"),
+                str(extended_with_confidence),
+                str(extended_with_confidence_filtered),
+                "--max-tumor-noise-ratio",
+                str(args.max_tumor_noise_ratio),
+                "--control-max-seq-distance",
+                str(args.control_max_seq_distance),
+                "--control-max-telo-clipped-at-site",
+                str(args.control_max_telo_clipped_at_site),
+            ]
+        )
 
     bed_zoomed_out = bed_zoomed_out_dir / f"{pid}_telomere_insertions.bed"
     bed_zoomed_in = bed_zoomed_in_dir / f"{pid}_telomere_insertions.bed"
