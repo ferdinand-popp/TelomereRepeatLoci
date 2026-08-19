@@ -149,6 +149,26 @@ TelomereHunter output directory:
 `<telomerehunter-dir>_TelomereRepeatLoci`.
 You can still override this with `--output-dir`.
 
+### Command-line options
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--tumor-bam` | Yes | — | Tumor BAM/CRAM file |
+| `--tel-tumor-bam` | Yes | — | TelomereHunter-filtered intratelomeric tumor BAM, used for discordant-read screening |
+| `--control-bam` | No | `""` | Control BAM/CRAM; omit to run in tumor-only mode |
+| `--tel-control-bam` | No | `""` | Filtered intratelomeric control BAM |
+| `--output-dir` | No | derived | Output directory; defaults to `<telomerehunter-dir>_TelomereRepeatLoci` next to the tumor TelomereHunter folder |
+| `--tumor-sample-name` | No | `tumor` | Label used in output file names for the tumor sample |
+| `--control-sample-name` | No | `control` | Label used in output file names for the control sample |
+| `--blacklist` | No | `no_file` | TSV of 1 kb windows to exclude as likely false positives |
+| `--consider-blacklist` | No | off | Apply the blacklist when filtering candidate regions |
+| `--tumor-discordant-read-lower-limit` | No | `3.0` | Minimum discordant reads (mapq > 30) required in the tumor sample per candidate region |
+| `--control-discordant-read-upper-limit` | No | `0.0` | Maximum discordant reads allowed in the control sample per candidate region |
+| `--reference-fasta` | No | `""` | Reference FASTA; required for microhomology analysis and visualization (unless `--skip-visualization`) |
+| `--skip-visualization` | No | off | Skip generation of zoomed-in IGV-like plots |
+| `--plot-min-support` | No | `2.0` | Minimum `reads_supporting_insertion_pos` required to include a region in plot BEDs |
+| `--samtoolsbin` | No | `samtools` | Path/name of the samtools binary (kept for compatibility; visualization uses pysam directly) |
+
 ## Notes
 
 - The scripts in `src/` are orchestrated by `main.py`.
