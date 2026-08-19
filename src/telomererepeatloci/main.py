@@ -57,6 +57,16 @@ def parse_args():
             "plot BEDs. Default: 2."
         ),
     )
+    parser.add_argument(
+        "--site-window",
+        type=int,
+        default=100,
+        help=(
+            "Flank (bp) around insertion_site used to compute read depth and "
+            "collect candidate clipped reads for the confidence-scoring step. "
+            "Default: 100."
+        ),
+    )
     parser.add_argument("--samtoolsbin", default="samtools")
 
     args = parser.parse_args()
@@ -305,6 +315,23 @@ def process_sample(args, scripts_dir):
         ]
     )
 
+    # Same candidate windows checked against the control BAM, so later steps
+    # can tell whether control shows the same clipped-telomere signal.
+    control_clipped = Path("NULL")
+    if use_control:
+        control_clipped = (
+            clipped_dir / f"{pid}_{args.control_sample_name}_clipped_reads.tsv"
+        )
+        run_command(
+            [
+                sys.executable,
+                str(scripts_dir / "find_fusion_reads.py"),
+                str(candidates),
+                str(control_bam),
+                str(control_clipped),
+            ]
+        )
+
     extended = (
         candidate_dir / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
     )
@@ -333,6 +360,25 @@ def process_sample(args, scripts_dir):
     if args.reference_fasta:
         cmd.extend(["--reference", args.reference_fasta])
     run_command(cmd)
+
+    extended_with_confidence = (
+        candidate_dir
+        / f"{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv"
+    )
+    run_command(
+        [
+            sys.executable,
+            str(scripts_dir / "assess_site_confidence.py"),
+            str(extended_with_consensus),
+            str(clipped),
+            str(control_clipped),
+            str(tumor_bam),
+            str(control_bam) if use_control else "NULL",
+            str(extended_with_confidence),
+            "--site-window",
+            str(args.site_window),
+        ]
+    )
 
     bed_zoomed_out = bed_zoomed_out_dir / f"{pid}_telomere_insertions.bed"
     bed_zoomed_in = bed_zoomed_in_dir / f"{pid}_telomere_insertions.bed"
