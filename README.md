@@ -131,11 +131,10 @@ Result file:
 ```
 This is the consensus table (step 4) with the columns above appended.
 
-#### 7. Optional: drop low-confidence regions by threshold
+#### 7. Drop low-confidence regions by threshold
 
-The diagnostics from step 6 are annotation-only by default — nothing is removed unless you opt in with
-`--filter-low-confidence-regions`, which runs `filter_by_site_confidence.py` on the table from step 6 and
-writes an additional filtered table. A region is dropped if:
+`filter_by_site_confidence.py` always runs on the table from step 6 and writes a filtered table alongside
+it (the unfiltered table from step 6 is also always kept, so nothing is lost). A region is dropped if:
 
 - `tumor_noise_ratio` is present and exceeds `--max-tumor-noise-ratio` (default `0.8`), or
 - control shows telomeric clipped reads at the insertion site (`control_telo_clipped_at_insertion_site > 0`)
@@ -145,10 +144,11 @@ writes an additional filtered table. A region is dropped if:
   --control-max-telo-clipped-at-site`, default `2`).
 
 A region with blank/missing diagnostics (e.g. no `insertion_site`, or no control BAM) is never dropped by
-this step. These defaults are a starting point, not validated thresholds — tune them against your own data
-by comparing the kept/dropped regions against manual review (step 8) and the plots.
+this step. These defaults are a starting point, not validated thresholds — tune them via
+`--max-tumor-noise-ratio`/`--control-max-seq-distance`/`--control-max-telo-clipped-at-site` against your
+own data by comparing the kept/dropped regions against manual review (step 8) and the plots.
 
-Result file (only written when `--filter-low-confidence-regions` is set):
+Result file:
 ```
 <output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv
 ```
@@ -184,11 +184,12 @@ filtering the table below on chrom + `insertion_site`, or maintaining a separate
 The result table to carry forward is:
 
 ```
-<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv
+<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv
 ```
 
-or, if you ran with `--filter-low-confidence-regions` (step 7) and trust the thresholds you set, the
-`..._extended_with_confidence_filtered.tsv` variant with low-confidence regions already dropped.
+with low-confidence regions already dropped per step 7's thresholds. The unfiltered
+`..._extended_with_confidence.tsv` (step 6) is also always kept, in case a region you expected to see
+was dropped and you want to check why before adjusting the thresholds.
 
 This is the final, fully annotated table: one row per predicted telomere repeat locus, combining the
 candidate-region/discordant-read counts, the predicted `insertion_site` and `reads_supporting_insertion_pos`,
@@ -275,10 +276,9 @@ You can still override this with `--output-dir`.
 | `--skip-visualization` | No | off | Skip generation of zoomed-in IGV-like plots |
 | `--plot-min-support` | No | `2.0` | Minimum `reads_supporting_insertion_pos` required to include a region in plot BEDs |
 | `--site-window` | No | `100` | Flank (bp) around `insertion_site` used for the site-level confidence diagnostics (depth and clipped-read collection) |
-| `--filter-low-confidence-regions` | No | off | Write an additional table with regions dropped by the thresholds below, on top of the always-written unfiltered table |
-| `--max-tumor-noise-ratio` | No | `0.8` | Max allowed `tumor_noise_ratio` before a region is dropped (only used with `--filter-low-confidence-regions`) |
-| `--control-max-seq-distance` | No | `2` | Max Hamming distance (12 bp at the breakpoint) between control/tumor clipped sequences to count as a germline match (only used with `--filter-low-confidence-regions`) |
-| `--control-max-telo-clipped-at-site` | No | `2` | Max telomeric clipped reads allowed in control at the insertion site regardless of sequence match (only used with `--filter-low-confidence-regions`) |
+| `--max-tumor-noise-ratio` | No | `0.8` | Max allowed `tumor_noise_ratio` before a region is dropped by the confidence-filtering step |
+| `--control-max-seq-distance` | No | `2` | Max Hamming distance (12 bp at the breakpoint) between control/tumor clipped sequences to count as a germline match, used by the confidence-filtering step |
+| `--control-max-telo-clipped-at-site` | No | `2` | Max telomeric clipped reads allowed in control at the insertion site regardless of sequence match, used by the confidence-filtering step |
 | `--samtoolsbin` | No | `samtools` | Path/name of the samtools binary (kept for compatibility; visualization uses pysam directly) |
 
 ## Notes
@@ -333,4 +333,4 @@ uv run telomere-repeat-loci \
   --plot-min-support 2
 ```
 
-Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_confidence.tsv` should have regions and plots should be generated for ChrX and Chr22
+Result file `/results/.../candidate_region_tables/..._telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv` should have regions and plots should be generated for ChrX and Chr22

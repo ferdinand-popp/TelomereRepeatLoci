@@ -118,13 +118,14 @@ data".
    window). Requires a control clipped-reads table, produced by running `find_fusion_reads.py` a
    second time against the control BAM (see `process_sample` in `main.py`) — this is new; the
    original pipeline only ever ran `find_fusion_reads.py` on tumor.
-9. **`filter_by_site_confidence.py`** — optional (`--filter-low-confidence-regions`, off by
-   default). Drops rows from the step-8 output whose `tumor_noise_ratio` exceeds
+9. **`filter_by_site_confidence.py`** — always runs (no on/off flag; only the thresholds are
+   adjustable). Drops rows from the step-8 output whose `tumor_noise_ratio` exceeds
    `--max-tumor-noise-ratio`, or whose control-side diagnostics indicate a germline/artifact
    match (`control_telo_clipped_at_insertion_site > 0` and either the sequence distance is within
    `--control-max-seq-distance` or the count exceeds `--control-max-telo-clipped-at-site`). Blank/
    missing diagnostics never cause a drop. Writes a separate `*_filtered.tsv` file; the unfiltered
-   table from step 8 is always written regardless of this flag.
+   table from step 8 is also always written, so a region dropped by mistaken thresholds is never
+   permanently lost.
 10. **`make_bed_for_visualization.py`** — writes zoomed-out and zoomed-in BED files per PID,
     filtering by `--plot-min-support` (minimum `reads_supporting_insertion_pos`).
 11. **`visualize_telomere_insertions.py`** — renders IGV-like read/coverage plots around each
@@ -145,9 +146,9 @@ All outputs live under `<output-dir>/` (see `get_output_dir()`):
 - `candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv`
   — annotated result table through the consensus step (step 7)
 - `candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence.tsv`
-  — the above plus site-confidence diagnostic columns (step 8); this is the table to use unless
-  `--filter-low-confidence-regions` was set, in which case also see the `..._filtered.tsv` variant
-  (step 9)
+  — the above plus site-confidence diagnostic columns (step 8), before threshold filtering
+- `candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_confidence_filtered.tsv`
+  — the above with low-confidence regions dropped per step 9's thresholds; this is the table to use
 - `plots/bedfiles/{zoomed_out,zoomed_in}/` — BED files driving visualization
 - `plots/zoomed_in/{pid}_done.txt` plus per-locus plot images — visualization output (unless
   `--skip-visualization`)
