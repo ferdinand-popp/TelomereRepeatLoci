@@ -91,6 +91,46 @@ Assuming that the telomere sequence at the repeat locus consists exclusively of 
 #### 5. Make IGV-like plot
 To rule out remaining false positives, each telomere repeat locus should be checked manually. To facilitate this process, Integrative Genomics Viewer (IGV)-like plots of each telomere repeat locus are made. The script `make_bed_for_visualization.py` makes tables in BED format that contain the reference genome start and end positions used for the plots, which are 100 bp up- and downstream of the telomere repeat locus. This table is then used as input for the script visualize_telomere_insertions.py. The script was adapted from [here](https://github.com/DKFZ-ODCF/IndelCallingWorkflow/blob/master/resources/analysisTools/indelCallingWorkflow/visualize.py). Given the alignment BAM files of the tumor and control sample, the script generates a PDF file for each genomic region in the input BED file, in which the reads surrounding the telomere repeat loci are displayed in the tumor and in the control sample. Moreover, panels with the coverage in the region are plotted. Several new features were added to the original script: the discordant reads obtained in previous steps of the TelomereRepeatLoci pipeline are highlighted, hard- clipped bases are obtained from the primary alignments and displayed, non-telomeric clipped bases are transparent, while telomeric clipped bases remain opaque. With the resulting images, tumor and control sample can easily be compared and artifact-prone regions, e.g. with a lot of clipped reads, can be identified.
 
+#### 6. Manual review of predicted insertions
+
+The pipeline does not classify candidate loci as true or false positives on its own — a human still has
+to look at each one. This step is manual and happens outside the CLI, but the outputs below are what
+you review and where the final calls end up.
+
+**What to look at.** For each PID, `make_bed_for_visualization.py` writes two BED files under
+`plots/bedfiles/`: `zoomed_in/{pid}_telomere_insertions.bed` (±100 bp around `insertion_site`, used to
+render the plots) and `zoomed_out/{pid}_telomere_insertions.bed` (±500 bp, generated for a wider manual
+look in IGV/another BAM viewer if the 100 bp plot isn't enough context — it is not itself rendered by
+`visualize_telomere_insertions.py`). Both BEDs only include regions with at least `--plot-min-support`
+supporting reads (default 2).
+
+For every region in the zoomed-in BED, `visualize_telomere_insertions.py` renders one plot at
+`plots/zoomed_in/{pid}_{chrom}_{insertion_site}.pdf`. Once all plots for a PID finish, a
+`plots/zoomed_in/{pid}_done.txt` marker file is written; its presence is how you (or a wrapper script)
+can tell that visualization for a sample completed rather than crashed partway through. Absence of
+`_done.txt` after a run means visualization did not finish and some loci may be missing plots.
+
+Review each plot the same way the pipeline's design intends: compare the tumor and control read/coverage
+tracks, check whether the highlighted discordant reads and telomeric (opaque) vs. non-telomeric
+(transparent) clipped bases look like a real fusion junction, and flag loci with the artifact patterns
+called out above (e.g. many clipped reads collapsing onto the exact same position, or clipping/coverage
+signal that is also present in the control).
+
+**Where results end up.** The plots are a QC aid, not the result file — they are not written back into
+any table, so exclusion decisions from manual review have to be applied by the reviewer (e.g. by
+filtering the table below on chrom + `insertion_site`, or maintaining a separate list of rejected loci).
+The single result table to carry forward is:
+
+```
+<output-dir>/candidate_region_tables/{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv
+```
+
+This is the final, fully annotated table: one row per predicted telomere repeat locus, combining the
+candidate-region/discordant-read counts, the predicted `insertion_site` and `reads_supporting_insertion_pos`,
+`sum_TTAGGG_count`/`sum_CCCTAA_count` and `repeat_forward` (insertion orientation), and the
+`consensus`/`flanking_seq`/`bp_microhomology` columns from the consensus step. Match a plot back to its
+row in this table via `chrom` and `insertion_site` (the same values used in the plot's filename and the
+zoomed-in BED's `pos` column).
 
 ---
 
