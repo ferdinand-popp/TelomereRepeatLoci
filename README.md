@@ -127,6 +127,14 @@ uv run telomere-repeat-loci \
   --reference-fasta /path/to/reference.fa
 ```
 
+The `--blacklist` file lists windows to exclude as likely false positives. Cohort-derived blacklists
+(`PCAWG_tel_ins_blacklist.tsv`, `NB_tel_ins_blacklist.tsv`) are provided in `blacklists/`; see
+`blacklists/README` for details. For an external hg19 blacklist of problematic genomic regions,
+download the ENCODE/Boyle-Lab blacklist:
+```bash
+wget https://github.com/Boyle-Lab/Blacklist/raw/master/lists/hg19-blacklist.v2.bed.gz
+```
+
 Minimal single-sample run (reference FASTA is still required for microhomology analysis and visualization):
 
 ```bash
