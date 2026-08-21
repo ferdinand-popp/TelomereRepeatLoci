@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import concurrent.futures
 import subprocess
 import sys
 from pathlib import Path
@@ -126,6 +127,46 @@ def run_command(command):
     print("---Done subprocess---")
 
 
+def run_command_captured(command, label):
+    """Like run_command, but buffers child stdout/stderr and prints them as one
+    labeled block after the process finishes, instead of streaming them live.
+
+    Used only for branches that run concurrently with another branch, where
+    two processes writing to the same terminal at once would interleave their
+    output line-by-line (or mid-line).
+    """
+    print(f"[{label}] Running:", " ".join(command))
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    if result.stdout:
+        print(f"[{label}] stdout:\n{result.stdout}", end="")
+    if result.stderr:
+        print(f"[{label}] stderr:\n{result.stderr}", end="")
+    print(f"[{label}] ---Done subprocess---")
+
+
+def run_concurrent_branches(branches):
+    """Run independent (label, zero-arg callable) branches concurrently.
+
+    Waits for all branches to finish before raising, and combines every
+    failure into one error, since there's no cheap way to kill an in-flight
+    subprocess from another thread and ThreadPoolExecutor already blocks
+    until all workers finish on exit regardless.
+    """
+    errors = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(branches)) as executor:
+        futures = {executor.submit(fn): label for label, fn in branches}
+        for future in concurrent.futures.as_completed(futures):
+            label = futures[future]
+            try:
+                future.result()
+            except Exception as exc:
+                errors.append((label, exc))
+    if errors:
+        raise RuntimeError(
+            "; ".join(f"{label} branch failed: {exc}" for label, exc in errors)
+        )
+
+
 def get_filtered_bam(th_sample_dir):
     sample_dir = Path(th_sample_dir)
     preferred = sorted(sample_dir.glob("*_filtered_intratelomeric.bam"))
@@ -239,70 +280,81 @@ def process_sample(args, scripts_dir):
     ]:
         ensure_dir(path)
 
-    # Tumor discordant reads
-    tumor_discordant = (
-        tables_dir / f"{pid}_{args.tumor_sample_name}_discordant_reads.tsv"
-    )
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "find_discordant_reads.py"),
-            "-i",
-            str(tumor_filtered_bam),
-            "-o",
-            str(tumor_discordant),
-        ]
-    )
-
-    tumor_discordant_with_mapq = (
-        tables_dir
-        / f"{pid}_{args.tumor_sample_name}_discordant_reads_filtered_with_mapq.tsv"
-    )
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "add_mate_mapq.py"),
-            "-i",
-            str(tumor_discordant),
-            "-b",
-            str(tumor_bam),
-            "-o",
-            str(tumor_discordant_with_mapq),
-        ]
-    )
-
-    # Optional control discordant reads
-    control_discordant_with_mapq = Path("NULL")
-    if use_control:
-        control_discordant = (
-            tables_dir / f"{pid}_{args.control_sample_name}_discordant_reads.tsv"
-        )
-        run_command(
+    # Discordant reads: tumor and (if present) control are independent until
+    # count_discordant_reads.py needs both, so run them concurrently when
+    # there's a control branch to overlap with.
+    def discordant_chain(filtered_bam, bam, discordant_path, mapq_path, run):
+        run(
             [
                 sys.executable,
                 str(scripts_dir / "find_discordant_reads.py"),
                 "-i",
-                str(control_filtered_bam),
+                str(filtered_bam),
                 "-o",
-                str(control_discordant),
+                str(discordant_path),
             ]
         )
-
-        control_discordant_with_mapq = (
-            tables_dir
-            / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
-        )
-        run_command(
+        run(
             [
                 sys.executable,
                 str(scripts_dir / "add_mate_mapq.py"),
                 "-i",
-                str(control_discordant),
+                str(discordant_path),
                 "-b",
-                str(control_bam),
+                str(bam),
                 "-o",
-                str(control_discordant_with_mapq),
+                str(mapq_path),
             ]
+        )
+
+    tumor_discordant = (
+        tables_dir / f"{pid}_{args.tumor_sample_name}_discordant_reads.tsv"
+    )
+    tumor_discordant_with_mapq = (
+        tables_dir
+        / f"{pid}_{args.tumor_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+    )
+    control_discordant = (
+        tables_dir / f"{pid}_{args.control_sample_name}_discordant_reads.tsv"
+    )
+    control_discordant_with_mapq = Path("NULL")
+
+    if use_control:
+        control_discordant_with_mapq = (
+            tables_dir
+            / f"{pid}_{args.control_sample_name}_discordant_reads_filtered_with_mapq.tsv"
+        )
+        run_concurrent_branches(
+            [
+                (
+                    "tumor",
+                    lambda: discordant_chain(
+                        tumor_filtered_bam,
+                        tumor_bam,
+                        tumor_discordant,
+                        tumor_discordant_with_mapq,
+                        run=lambda cmd: run_command_captured(cmd, "tumor"),
+                    ),
+                ),
+                (
+                    "control",
+                    lambda: discordant_chain(
+                        control_filtered_bam,
+                        control_bam,
+                        control_discordant,
+                        control_discordant_with_mapq,
+                        run=lambda cmd: run_command_captured(cmd, "control"),
+                    ),
+                ),
+            ]
+        )
+    else:
+        discordant_chain(
+            tumor_filtered_bam,
+            tumor_bam,
+            tumor_discordant,
+            tumor_discordant_with_mapq,
+            run=run_command,
         )
 
     windows = tables_dir / f"{pid}_discordant_reads_1_kb_windows.tsv"
@@ -334,63 +386,81 @@ def process_sample(args, scripts_dir):
         ]
     )
 
-    # Tumor-centric downstream steps
+    # Tumor-centric downstream steps. Control's find_fusion_reads.py (also
+    # checked against the same candidate windows, so later steps can tell
+    # whether control shows the same clipped-telomere signal) isn't needed
+    # again until assess_site_confidence.py, so it can run concurrently with
+    # tumor's whole find_fusion -> predict -> consensus chain.
     clipped = clipped_dir / f"{pid}_{args.tumor_sample_name}_clipped_reads.tsv"
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "find_fusion_reads.py"),
-            str(candidates),
-            str(tumor_bam),
-            str(clipped),
-        ]
-    )
-
-    # Same candidate windows checked against the control BAM, so later steps
-    # can tell whether control shows the same clipped-telomere signal.
     control_clipped = Path("NULL")
-    if use_control:
-        control_clipped = (
-            clipped_dir / f"{pid}_{args.control_sample_name}_clipped_reads.tsv"
-        )
-        run_command(
-            [
-                sys.executable,
-                str(scripts_dir / "find_fusion_reads.py"),
-                str(candidates),
-                str(control_bam),
-                str(control_clipped),
-            ]
-        )
-
     extended = (
         candidate_dir / f"{pid}_telomere_insertions_candidate_regions_extended.tsv"
     )
-    run_command(
-        [
-            sys.executable,
-            str(scripts_dir / "predict_insertion_sites.py"),
-            str(candidates),
-            str(clipped),
-            str(tumor_discordant_with_mapq),
-            str(extended),
-        ]
-    )
-
     extended_with_consensus = (
         candidate_dir
         / f"{pid}_telomere_insertions_candidate_regions_extended_with_consensus.tsv"
     )
-    cmd = [
-        sys.executable,
-        str(scripts_dir / "get_consensus.py"),
-        str(extended),
-        str(clipped),
-        str(extended_with_consensus),
-    ]
-    if args.reference_fasta:
-        cmd.extend(["--reference", args.reference_fasta])
-    run_command(cmd)
+
+    def step_find_fusion(bam, out_path, run):
+        run(
+            [
+                sys.executable,
+                str(scripts_dir / "find_fusion_reads.py"),
+                str(candidates),
+                str(bam),
+                str(out_path),
+            ]
+        )
+
+    def step_predict(run):
+        run(
+            [
+                sys.executable,
+                str(scripts_dir / "predict_insertion_sites.py"),
+                str(candidates),
+                str(clipped),
+                str(tumor_discordant_with_mapq),
+                str(extended),
+            ]
+        )
+
+    def step_consensus(run):
+        cmd = [
+            sys.executable,
+            str(scripts_dir / "get_consensus.py"),
+            str(extended),
+            str(clipped),
+            str(extended_with_consensus),
+        ]
+        if args.reference_fasta:
+            cmd.extend(["--reference", args.reference_fasta])
+        run(cmd)
+
+    if use_control:
+        control_clipped = (
+            clipped_dir / f"{pid}_{args.control_sample_name}_clipped_reads.tsv"
+        )
+
+        def tumor_locus_chain():
+            run_tumor = lambda cmd: run_command_captured(cmd, "tumor")  # noqa: E731
+            step_find_fusion(tumor_bam, clipped, run=run_tumor)
+            step_predict(run=run_tumor)
+            step_consensus(run=run_tumor)
+
+        def control_locus_chain():
+            step_find_fusion(
+                control_bam,
+                control_clipped,
+                run=lambda cmd: run_command_captured(cmd, "control"),
+            )
+
+        run_concurrent_branches(
+            [("tumor", tumor_locus_chain), ("control", control_locus_chain)]
+        )
+    else:
+        step_find_fusion(tumor_bam, clipped, run=run_command)
+        step_predict(run=run_command)
+        step_consensus(run=run_command)
 
     extended_with_confidence = (
         candidate_dir

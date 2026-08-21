@@ -292,6 +292,13 @@ You can still override this with `--output-dir`.
 - Legacy R helper scripts were removed; the workflow now uses Python scripts only.
 - `--tel-tumor-bam` and `--tel-control-bam` can be any BAM you want to screen (not limited to TelomereHunter outputs).
 - Discordant read screening uses overlapping 1 kb windows with a 500 bp step.
+- When `--control-bam` is given, the discordant-read and clipped-read steps run the tumor and
+  control branches concurrently (up to 2 threads) instead of back-to-back, since neither branch
+  needs the other's output until a later joining step. Each branch's subprocess output is
+  captured and printed as one labeled block (`[tumor]`/`[control]`) after it finishes, instead of
+  interleaved live, to keep logs readable. There's no flag for this — cap available cores at
+  job-submission time (e.g. a scheduler's `--cpus-per-task`) if you want to force single-core
+  execution.
 - All coordinate columns written by the Python workflow are 0-based, half-open (pysam/BED-style).
 - Visualization uses pysam directly; the `--samtoolsbin` flag is kept for compatibility.
 - run tests with `uv run pytest -v` -> WIP
