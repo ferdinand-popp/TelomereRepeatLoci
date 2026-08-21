@@ -1,9 +1,10 @@
 """Regression tests for the opt-in confidence-based filter.
 
-Blank/missing diagnostic values (e.g. no control BAM, or no insertion_site)
-must never cause a drop -- only a value that actually exceeds its threshold
-should. This mirrors how the rest of the pipeline treats "" as "no signal",
-not "worst case".
+A region with no predicted insertion_site is dropped outright -- it has no
+locus to review or plot. For regions that do have one, blank/missing
+diagnostic values (e.g. no control BAM) must never cause a drop -- only a
+value that actually exceeds its threshold should. This mirrors how the rest
+of the pipeline treats "" as "no signal", not "worst case".
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from telomererepeatloci.filter_by_site_confidence import (
 def _row(**overrides):
     row = {
         "window": "1_1000_+",
+        "insertion_site": "12345",
         "tumor_noise_ratio": "",
         "control_telo_clipped_at_insertion_site": "",
         "control_min_seq_distance_to_tumor": "",
@@ -30,6 +32,11 @@ def _row(**overrides):
 def test_keeps_region_with_missing_diagnostics():
     row = _row()
     assert passes_confidence_filters(row, 0.8, 2, 2) is True
+
+
+def test_drops_region_with_no_insertion_site():
+    row = _row(insertion_site="")
+    assert passes_confidence_filters(row, 0.8, 2, 2) is False
 
 
 def test_drops_region_with_high_tumor_noise_ratio():

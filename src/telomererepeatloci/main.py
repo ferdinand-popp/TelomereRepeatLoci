@@ -436,7 +436,7 @@ def process_sample(args, scripts_dir):
         [
             sys.executable,
             str(scripts_dir / "make_bed_for_visualization.py"),
-            str(extended),
+            str(extended_with_confidence_filtered),
             str(bed_zoomed_out),
             str(bed_zoomed_in),
             pid,

@@ -136,6 +136,8 @@ This is the consensus table (step 4) with the columns above appended.
 `filter_by_site_confidence.py` always runs on the table from step 6 and writes a filtered table alongside
 it (the unfiltered table from step 6 is also always kept, so nothing is lost). A region is dropped if:
 
+- it has no predicted `insertion_site` at all — there is no locus to review or plot, so it can't be
+  carried into the "table to use", or
 - `tumor_noise_ratio` is present and exceeds `--max-tumor-noise-ratio` (default `0.8`), or
 - control shows telomeric clipped reads at the insertion site (`control_telo_clipped_at_insertion_site > 0`)
   **and either** their sequence is close enough to tumor's to count as a match
@@ -143,8 +145,9 @@ it (the unfiltered table from step 6 is also always kept, so nothing is lost). A
   too many of them regardless of sequence similarity (`control_telo_clipped_at_insertion_site >
   --control-max-telo-clipped-at-site`, default `2`).
 
-A region with blank/missing diagnostics (e.g. no `insertion_site`, or no control BAM) is never dropped by
-this step. These defaults are a starting point, not validated thresholds — tune them via
+For regions that do have an `insertion_site`, blank/missing diagnostics (e.g. no control BAM) never cause
+a drop on their own — only a computed value that actually exceeds a threshold does. These defaults are a
+starting point, not validated thresholds — tune them via
 `--max-tumor-noise-ratio`/`--control-max-seq-distance`/`--control-max-telo-clipped-at-site` against your
 own data by comparing the kept/dropped regions against manual review (step 8) and the plots.
 
@@ -159,11 +162,13 @@ The pipeline does not classify candidate loci as true or false positives on its 
 to look at each one. This step is manual and happens outside the CLI, but the outputs below are what
 you review and where the final calls end up.
 
-**What to look at.** For each PID, `make_bed_for_visualization.py` writes two BED files under
-`plots/bedfiles/`: `zoomed_in/{pid}_telomere_insertions.bed` (±100 bp around `insertion_site`, used to
-render the plots) and `zoomed_out/{pid}_telomere_insertions.bed` (±500 bp, generated for a wider manual
-look in IGV/another BAM viewer if the 100 bp plot isn't enough context — it is not itself rendered by
-`visualize_telomere_insertions.py`). Both BEDs only include regions with at least `--plot-min-support`
+**What to look at.** `make_bed_for_visualization.py` reads from the confidence-filtered table (step 7's
+output), so only regions that survived the confidence filter get a BED entry and a plot. For each PID, it
+writes two BED files under `plots/bedfiles/`: `zoomed_in/{pid}_telomere_insertions.bed` (±100 bp around
+`insertion_site`, used to render the plots) and `zoomed_out/{pid}_telomere_insertions.bed` (±500 bp,
+generated for a wider manual look in IGV/another BAM viewer if the 100 bp plot isn't enough context — it
+is not itself rendered by `visualize_telomere_insertions.py`). Both BEDs only include regions with at
+least `--plot-min-support`
 supporting reads (default 2).
 
 For every region in the zoomed-in BED, `visualize_telomere_insertions.py` renders one plot at

@@ -39,10 +39,15 @@ def passes_confidence_filters(
 ) -> bool:
     """Diagnostic columns from assess_site_confidence.py -> keep/drop decision.
 
-    Blank/missing diagnostics (no insertion_site, no control data, etc.) never
-    cause a drop on their own -- only a computed value that actually exceeds a
-    threshold does.
+    A region with no predicted insertion_site is dropped outright -- it has no
+    locus to review or plot, so it can't be "kept" in any meaningful sense.
+    For regions that do have an insertion_site, blank/missing diagnostics (no
+    control data, etc.) never cause a drop on their own -- only a computed
+    value that actually exceeds a threshold does.
     """
+    if row.get("insertion_site") in EMPTY_VALUES:
+        return False
+
     noise_ratio = parse_float(row.get("tumor_noise_ratio"))
     if noise_ratio is not None and noise_ratio > max_tumor_noise_ratio:
         return False
