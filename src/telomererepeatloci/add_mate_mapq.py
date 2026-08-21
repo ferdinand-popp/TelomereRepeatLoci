@@ -12,8 +12,10 @@ import pysam
 from pipeline.tables import DISCORDANT_READS_WITH_MAPQ_COLUMNS, read_tsv, write_tsv
 
 
-WINDOW_BP = 5000
-FALLBACK_CONTIG_SCAN = True
+# mate_position is the mate's own reported 0-based leftmost mapped position (RNEXT/PNEXT),
+# so a true hit sits at (or within a few dozen bp of, from indel realignment/BQSR/soft-clip
+# boundary differences) that exact coordinate -- not thousands of bp away.
+WINDOW_BP = 300
 CHROMOSOME_LIST = [str(i) for i in range(1, 22 + 1)] + ["X", "Y"]
 
 
@@ -96,7 +98,6 @@ def add_mate_mapq_records(
     bam_path: str,
     chromosome_list: Iterable[str] = CHROMOSOME_LIST,
     window_bp: int = WINDOW_BP,
-    fallback_contig_scan: bool = FALLBACK_CONTIG_SCAN,
 ) -> pd.DataFrame:
     if table_df.empty:
         return pd.DataFrame(columns=DISCORDANT_READS_WITH_MAPQ_COLUMNS)
@@ -170,7 +171,7 @@ def add_mate_mapq_records(
             found = False
             try:
                 for aln in bam.fetch(chrom_resolved, start0, end0):
-                    if aln.is_secondary or aln.is_supplementary:
+                    if aln.is_secondary or aln.is_supplementary or aln.is_unmapped:
                         continue
                     if norm_read_name(aln.query_name) != read_name_norm:
                         continue
@@ -196,35 +197,6 @@ def add_mate_mapq_records(
                         status = "ok_window"
                     found = True
                     break
-
-                if (not found) and fallback_contig_scan:
-                    for aln in bam.fetch(chrom_resolved):
-                        if aln.is_secondary or aln.is_supplementary:
-                            continue
-                        if norm_read_name(aln.query_name) != read_name_norm:
-                            continue
-
-                        mate_mapq = str(aln.mapping_quality)
-                        mate_strand = "-" if aln.is_reverse else "+"
-
-                        if aln.mate_is_unmapped:
-                            mate_chr = ""
-                            mate_pos = ""
-                            status = "ok_fallback_contig_mate_unmapped"
-                        else:
-                            try:
-                                mate_chr = bam.get_reference_name(aln.next_reference_id)
-                            except Exception:
-                                mate_chr = ""
-                            mate_pos = (
-                                str(aln.next_reference_start)
-                                if aln.next_reference_start is not None
-                                and aln.next_reference_start >= 0
-                                else ""
-                            )
-                            status = "ok_fallback_contig"
-                        found = True
-                        break
 
                 if not found:
                     status = "read_not_found"
