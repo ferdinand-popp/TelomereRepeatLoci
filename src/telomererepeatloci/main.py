@@ -4,7 +4,13 @@ import argparse
 import concurrent.futures
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
+
+
+def _timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def parse_args():
@@ -122,9 +128,11 @@ def parse_args():
 
 
 def run_command(command):
-    print("Running:", " ".join(command))
+    start = time.monotonic()
+    print(f"[{_timestamp()}] Running:", " ".join(command))
     subprocess.run(command, check=True)
-    print("---Done subprocess---")
+    elapsed = time.monotonic() - start
+    print(f"[{_timestamp()}] ---Done subprocess--- ({elapsed:.1f}s)")
 
 
 def run_command_captured(command, label):
@@ -135,13 +143,15 @@ def run_command_captured(command, label):
     two processes writing to the same terminal at once would interleave their
     output line-by-line (or mid-line).
     """
-    print(f"[{label}] Running:", " ".join(command))
+    start = time.monotonic()
+    print(f"[{_timestamp()}] [{label}] Running:", " ".join(command))
     result = subprocess.run(command, check=True, capture_output=True, text=True)
     if result.stdout:
         print(f"[{label}] stdout:\n{result.stdout}", end="")
     if result.stderr:
         print(f"[{label}] stderr:\n{result.stderr}", end="")
-    print(f"[{label}] ---Done subprocess---")
+    elapsed = time.monotonic() - start
+    print(f"[{_timestamp()}] [{label}] ---Done subprocess--- ({elapsed:.1f}s)")
 
 
 def run_concurrent_branches(branches):
@@ -561,8 +571,11 @@ def main():
     print(f"TelomereRepeatLoci - version {get_version_from_package()}")
     args = parse_args()
     scripts_dir = Path(__file__).resolve().parent
-    print("--- Processing sample ---")
+    start = time.monotonic()
+    print(f"[{_timestamp()}] --- Processing sample ---")
     process_sample(args, scripts_dir)
+    elapsed = time.monotonic() - start
+    print(f"[{_timestamp()}] --- Done processing sample --- ({elapsed:.1f}s)")
 
 
 if __name__ == "__main__":
