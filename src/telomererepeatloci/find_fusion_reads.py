@@ -7,7 +7,12 @@ from pathlib import Path
 import pandas as pd
 import pysam
 
-from pipeline.tables import FUSION_READS_COLUMNS, read_tsv, sanitize_tsv_values, write_tsv
+from pipeline.tables import (
+    FUSION_READS_COLUMNS,
+    read_tsv,
+    sanitize_tsv_values,
+    write_tsv,
+)
 
 
 TELOMERE_PATTERN = re.compile(r"TTAGGG|CCCTAA")
@@ -65,29 +70,47 @@ def expected_pos_fusion(cigar):
     return ""
 
 
-def get_primary_sequence(bam, sa_read, primary_chr, primary_pos, primary_strand):
-    if not primary_chr or primary_pos <= 0:
-        return sa_read.query_sequence or ""
-    start0 = max(0, primary_pos - 1)
+def _primary_reads_at(bam, chrom, pos, cache):
+    """Return {(read_name, is_read1, is_read2): sequence} for non-supplementary,
+    non-secondary reads at a 1bp SA-tag locus, fetching it at most once per
+    (chrom, pos) for the lifetime of `cache` instead of once per supplementary
+    read -- fusion breakpoints often have many supplementary alignments
+    pointing back at the same primary locus."""
+    key = (chrom, pos)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    seqs = {}
+    start0 = max(0, pos - 1)
     # Query exactly the SA-tag primary position in 0-based half-open coordinates.
-    end0 = primary_pos
-    for read in bam.fetch(primary_chr, start0, end0):
-        if read.query_name != sa_read.query_name:
-            continue
+    end0 = pos
+    for read in bam.fetch(chrom, start0, end0):
         if read.is_supplementary or read.is_secondary:
             continue
-        if sa_read.is_read1 != read.is_read1 or sa_read.is_read2 != read.is_read2:
-            continue
-
         seq = read.query_sequence or ""
         if not seq:
             continue
+        seqs.setdefault((read.query_name, read.is_read1, read.is_read2), seq)
+    cache[key] = seqs
+    return seqs
 
-        supp_strand = "-" if sa_read.is_reverse else "+"
-        if primary_strand != supp_strand:
-            seq = reverse_complement(seq)
-        return seq
-    return sa_read.query_sequence or ""
+
+def get_primary_sequence(
+    bam, sa_read, primary_chr, primary_pos, primary_strand, primary_seq_cache
+):
+    if not primary_chr or primary_pos <= 0:
+        return sa_read.query_sequence or ""
+
+    seqs = _primary_reads_at(bam, primary_chr, primary_pos, primary_seq_cache)
+    seq = seqs.get((sa_read.query_name, sa_read.is_read1, sa_read.is_read2))
+    if not seq:
+        return sa_read.query_sequence or ""
+
+    supp_strand = "-" if sa_read.is_reverse else "+"
+    if primary_strand != supp_strand:
+        seq = reverse_complement(seq)
+    return seq
 
 
 def parse_sa_tag(sa_tag):
@@ -152,9 +175,15 @@ def main():
     write_fusion_reads_streaming(args.candidate_region_file, args.bamfile, args.outfile)
 
 
-def _fusion_rows_for_region(bam, region):
+def _fusion_rows_for_region(bam, region, primary_seq_cache):
     """Yield soft-clip and supplementary-alignment fusion-read rows for one
-    candidate region, without accumulating them anywhere."""
+    candidate region, without accumulating them anywhere.
+
+    Both row kinds are derived from the same window fetch (a read can produce
+    either, or both, e.g. a supplementary alignment that also has a soft clip)
+    -- iterating the window once instead of twice halves the read I/O/parsing
+    cost per region.
+    """
     window = region.get("window", "")
     chrom = region.get("chrom", "")
     try:
@@ -166,82 +195,83 @@ def _fusion_rows_for_region(bam, region):
     window_start0 = max(0, chrom_start - WINDOW_EXTENSION - 1)
     window_end0 = chrom_end + WINDOW_EXTENSION
 
-    # soft-clipped reads
     for read in bam.fetch(chrom, window_start0, window_end0):
         if read.is_unmapped:
             continue
-        cigar = read.cigarstring or ""
-        if "S" not in cigar:
-            continue
-
-        start0 = read.reference_start
-        end0 = alignment_end(start0, read.cigartuples)
-        sequence = _strip_nuls(read.query_sequence or "")
-        clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
-        clipped_sequence = _strip_nuls(", ".join(clipped_parts))
-        part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
-        t_count, c_count = telomere_counts(clipped_sequence)
-        row = {
-            "window": window,
-            "read_name": read.query_name,
-            "read_1_2": read_pair_label(read),
-            "start": start0,
-            "end": end0,
-            "cigar": cigar,
-            "chr_primary_align": "",
-            "coord_primary_align": "",
-            "strand_primary_align": "",
-            "sequence": sequence,
-            "clipped_sequence": clipped_sequence,
-            "part_telomere": str(part_telomere),
-            "TTAGGG_count": t_count,
-            "CCCTAA_count": c_count,
-            "expected_pos_fusion": expected_pos_fusion(cigar),
-        }
-        if not _row_has_bad_encoding(row):
-            yield row
-
-    # supplementary alignments (hard-clipped candidates)
-    for read in bam.fetch(chrom, window_start0, window_end0):
-        if read.is_unmapped or not read.is_supplementary:
-            continue
-
-        try:
-            sa_tag = read.get_tag("SA")
-        except KeyError:
-            continue
-        primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
-        primary_pos0 = primary_pos - 1 if primary_pos else 0
-        sequence = _strip_nuls(
-            get_primary_sequence(bam, read, primary_chr, primary_pos, primary_strand)
-        )
 
         cigar = read.cigarstring or ""
         start0 = read.reference_start
         end0 = alignment_end(start0, read.cigartuples)
-        clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
-        clipped_sequence = _strip_nuls(", ".join(clipped_parts))
-        part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
-        t_count, c_count = telomere_counts(clipped_sequence)
-        row = {
-            "window": window,
-            "read_name": read.query_name,
-            "read_1_2": read_pair_label(read),
-            "start": start0,
-            "end": end0,
-            "cigar": cigar,
-            "chr_primary_align": primary_chr,
-            "coord_primary_align": primary_pos0,
-            "strand_primary_align": primary_strand,
-            "sequence": sequence,
-            "clipped_sequence": clipped_sequence,
-            "part_telomere": str(part_telomere),
-            "TTAGGG_count": t_count,
-            "CCCTAA_count": c_count,
-            "expected_pos_fusion": expected_pos_fusion(cigar),
-        }
-        if not _row_has_bad_encoding(row):
-            yield row
+
+        # soft-clipped read
+        if "S" in cigar:
+            sequence = _strip_nuls(read.query_sequence or "")
+            clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
+            clipped_sequence = _strip_nuls(", ".join(clipped_parts))
+            part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
+            t_count, c_count = telomere_counts(clipped_sequence)
+            row = {
+                "window": window,
+                "read_name": read.query_name,
+                "read_1_2": read_pair_label(read),
+                "start": start0,
+                "end": end0,
+                "cigar": cigar,
+                "chr_primary_align": "",
+                "coord_primary_align": "",
+                "strand_primary_align": "",
+                "sequence": sequence,
+                "clipped_sequence": clipped_sequence,
+                "part_telomere": str(part_telomere),
+                "TTAGGG_count": t_count,
+                "CCCTAA_count": c_count,
+                "expected_pos_fusion": expected_pos_fusion(cigar),
+            }
+            if not _row_has_bad_encoding(row):
+                yield row
+
+        # supplementary alignment (hard-clipped candidate)
+        if read.is_supplementary:
+            try:
+                sa_tag = read.get_tag("SA")
+            except KeyError:
+                continue
+            primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
+            primary_pos0 = primary_pos - 1 if primary_pos else 0
+            sequence = _strip_nuls(
+                get_primary_sequence(
+                    bam,
+                    read,
+                    primary_chr,
+                    primary_pos,
+                    primary_strand,
+                    primary_seq_cache,
+                )
+            )
+
+            clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
+            clipped_sequence = _strip_nuls(", ".join(clipped_parts))
+            part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
+            t_count, c_count = telomere_counts(clipped_sequence)
+            row = {
+                "window": window,
+                "read_name": read.query_name,
+                "read_1_2": read_pair_label(read),
+                "start": start0,
+                "end": end0,
+                "cigar": cigar,
+                "chr_primary_align": primary_chr,
+                "coord_primary_align": primary_pos0,
+                "strand_primary_align": primary_strand,
+                "sequence": sequence,
+                "clipped_sequence": clipped_sequence,
+                "part_telomere": str(part_telomere),
+                "TTAGGG_count": t_count,
+                "CCCTAA_count": c_count,
+                "expected_pos_fusion": expected_pos_fusion(cigar),
+            }
+            if not _row_has_bad_encoding(row):
+                yield row
 
 
 def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
@@ -254,10 +284,11 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
     candidate_regions = read_tsv(candidate_region_file).to_dict("records")
 
     bam = pysam.AlignmentFile(bamfile, "rb")
+    primary_seq_cache = {}
     out_rows = []
     try:
         for region in candidate_regions:
-            out_rows.extend(_fusion_rows_for_region(bam, region))
+            out_rows.extend(_fusion_rows_for_region(bam, region, primary_seq_cache))
     finally:
         bam.close()
 
@@ -295,11 +326,12 @@ def write_fusion_reads_streaming(
         out_path.unlink()
 
     bam = pysam.AlignmentFile(bamfile, "rb")
+    primary_seq_cache = {}
     buffer = []
     wrote_header = False
     try:
         for region in candidate_regions:
-            buffer.extend(_fusion_rows_for_region(bam, region))
+            buffer.extend(_fusion_rows_for_region(bam, region, primary_seq_cache))
             if len(buffer) >= flush_rows:
                 wrote_header = _flush_rows(buffer, outfile, wrote_header)
                 buffer = []
@@ -308,7 +340,9 @@ def write_fusion_reads_streaming(
         bam.close()
 
     if not wrote_header:
-        write_tsv(pd.DataFrame(columns=FUSION_READS_COLUMNS), outfile, FUSION_READS_COLUMNS)
+        write_tsv(
+            pd.DataFrame(columns=FUSION_READS_COLUMNS), outfile, FUSION_READS_COLUMNS
+        )
 
 
 if __name__ == "__main__":
