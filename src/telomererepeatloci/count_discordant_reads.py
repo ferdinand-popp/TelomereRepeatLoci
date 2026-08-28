@@ -9,7 +9,6 @@ from pipeline.tables import WINDOWS_COLUMNS, read_tsv, write_tsv
 
 MIN_MATE_MAPQ = 30
 WINDOW_SIZE = 1000
-WINDOW_STEP = 500
 
 
 def load_discordant(path):
@@ -44,23 +43,63 @@ def build_windows(df):
     for (chrom, strand), group in df.groupby(["mate_chr", "mate_strand"], dropna=False):
         positions = group["mate_position"].astype(int).tolist()
         for pos in positions:
-            start = (pos // WINDOW_STEP) * WINDOW_STEP
-            for offset in [0, -WINDOW_STEP]:
-                win_start = start + offset
-                if win_start < 0:
-                    continue
-                win_end = win_start + WINDOW_SIZE
-                if win_start <= pos < win_end:
-                    windows.append(
-                        {
-                            "window": f"{chrom}_{win_start}_{strand}",
-                            "chrom": chrom,
-                            "chromStart": win_start,
-                            "chromEnd": win_end,
-                            "strand": strand,
-                        }
-                    )
+            win_start = (pos // WINDOW_SIZE) * WINDOW_SIZE
+            windows.append(
+                {
+                    "window": f"{chrom}_{win_start}_{strand}",
+                    "chrom": chrom,
+                    "chromStart": win_start,
+                    "chromEnd": win_start + WINDOW_SIZE,
+                    "strand": strand,
+                }
+            )
     return pd.DataFrame(windows).drop_duplicates()
+
+
+def merge_adjacent_tumor_windows(df: pd.DataFrame) -> pd.DataFrame:
+    """Merge consecutive same-chrom/strand 1kb windows into one region whenever
+    both windows have nonzero tumor discordant-read support, so a locus whose
+    support straddles a window boundary isn't undercounted below the
+    downstream tumor/control thresholds. Mirrors count_discordant_reads.R's
+    adjacent-window merge, which ran before thresholding rather than after.
+    """
+    if df.empty:
+        return df
+
+    df = df.sort_values(["chrom", "strand", "chromStart"]).reset_index(drop=True)
+
+    merged_rows = []
+    current = df.iloc[0].to_dict()
+    for _, row in df.iloc[1:].iterrows():
+        row = row.to_dict()
+        adjacent = (
+            row["chrom"] == current["chrom"]
+            and row["strand"] == current["strand"]
+            and row["chromStart"] == current["chromEnd"]
+        )
+        if (
+            adjacent
+            and current["tumor_discordant_read_count"] != 0
+            and row["tumor_discordant_read_count"] != 0
+        ):
+            current["chromEnd"] = row["chromEnd"]
+            current["_tumor_read_names"] = (
+                current["_tumor_read_names"] | row["_tumor_read_names"]
+            )
+            current["_control_read_names"] = (
+                current["_control_read_names"] | row["_control_read_names"]
+            )
+            current["tumor_discordant_read_count"] = len(
+                current["_tumor_read_names"]
+            )
+            current["control_discordant_read_count"] = len(
+                current["_control_read_names"]
+            )
+            continue
+        merged_rows.append(current)
+        current = row
+    merged_rows.append(current)
+    return pd.DataFrame(merged_rows)
 
 
 def count_windows(df, windows, name_column):
@@ -154,6 +193,7 @@ def compute_windows(
     merged_counts["_control_read_names"] = merged_counts["_control_read_names"].apply(
         lambda x: x if isinstance(x, set) else set()
     )
+    merged_counts = merge_adjacent_tumor_windows(merged_counts)
     merged_counts["PID"] = pid
 
     merged_counts["blacklisted"] = ""
