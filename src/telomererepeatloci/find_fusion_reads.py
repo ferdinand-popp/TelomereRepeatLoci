@@ -49,8 +49,26 @@ def reverse_complement(seq):
 
 
 def clipped_sequences_from_cigar(seq, cigartuples):
+    """Extract the soft/hard-clipped portions of `seq` per `cigartuples`.
+
+    For a record's own query_sequence, hard-clipped (H) bases are absent from
+    `seq` entirely, so H must not consume query positions. But for a
+    supplementary alignment whose `sequence` has been substituted with the
+    full primary read (see get_primary_sequence), the hard-clipped bases
+    *are* present in `seq` -- H must then be treated like a soft clip (both
+    consuming query space and itself extractable), matching R's
+    cigarRangesAlongQuerySpace(ops=c("S","H"), before.hard.clipping=TRUE)
+    against that same full sequence. Detect which case applies by comparing
+    `seq`'s length to the cigar-implied length with and without H.
+    """
     if not seq or not cigartuples:
         return []
+
+    len_without_h = sum(length for op, length in cigartuples if op in READ_CONSUME_OPS)
+    len_with_h = len_without_h + sum(
+        length for op, length in cigartuples if op == 5
+    )
+    hard_clip_present_in_seq = len_with_h != len_without_h and len(seq) == len_with_h
 
     qpos = 0
     clips = []
@@ -58,6 +76,9 @@ def clipped_sequences_from_cigar(seq, cigartuples):
         if op in READ_CONSUME_OPS:
             if op == 4:  # soft clip
                 clips.append(seq[qpos : qpos + length])
+            qpos += length
+        elif op == 5 and hard_clip_present_in_seq:  # hard clip, seq is unclipped
+            clips.append(seq[qpos : qpos + length])
             qpos += length
     return [c for c in clips if c]
 
