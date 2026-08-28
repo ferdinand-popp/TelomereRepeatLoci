@@ -176,25 +176,16 @@ def add_mate_mapq_records(
                     if norm_read_name(aln.query_name) != read_name_norm:
                         continue
 
+                    # aln IS the mate we searched for (matched by name near the
+                    # expected position) -- report its own aligned position, not
+                    # aln.next_reference_id/next_reference_start, which is the
+                    # position of *aln's* mate and loops straight back to the
+                    # original discordant read.
                     mate_mapq = str(aln.mapping_quality)
                     mate_strand = "-" if aln.is_reverse else "+"
-
-                    if aln.mate_is_unmapped:
-                        mate_chr = ""
-                        mate_pos = ""
-                        status = "ok_window_mate_unmapped"
-                    else:
-                        try:
-                            mate_chr = bam.get_reference_name(aln.next_reference_id)
-                        except Exception:
-                            mate_chr = ""
-                        mate_pos = (
-                            str(aln.next_reference_start)
-                            if aln.next_reference_start is not None
-                            and aln.next_reference_start >= 0
-                            else ""
-                        )
-                        status = "ok_window"
+                    mate_chr = aln.reference_name
+                    mate_pos = str(aln.reference_start)
+                    status = "ok_window"
                     found = True
                     break
 
