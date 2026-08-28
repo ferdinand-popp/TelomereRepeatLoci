@@ -3,13 +3,10 @@
 import argparse
 
 import ast
-import sys
 
 import pandas as pd
 
 from pipeline.tables import read_tsv, write_tsv
-
-MAX_FUSED_WINDOWS = 2
 
 
 def main():
@@ -74,8 +71,7 @@ def drop_read_name_columns(df: pd.DataFrame) -> pd.DataFrame:
         columns=[
             col
             for col in df.columns
-            if col
-            in {"_tumor_read_names", "_control_read_names", "_fused_window_count"}
+            if col in {"_tumor_read_names", "_control_read_names"}
         ],
         errors="ignore",
     )
@@ -113,7 +109,6 @@ def _overlap_ratio(left: set, right: set) -> float:
 def fuse_overlapping_candidates(
     df: pd.DataFrame,
     overlap_ratio_threshold: float = 0.5,
-    max_fused_windows: int = MAX_FUSED_WINDOWS,
 ) -> pd.DataFrame:
     if df.empty:
         return df
@@ -129,10 +124,8 @@ def fuse_overlapping_candidates(
 
     fused_rows = []
     current = df.iloc[0].to_dict()
-    current["_fused_window_count"] = 1
     for _, row in df.iloc[1:].iterrows():
         row = row.to_dict()
-        row["_fused_window_count"] = 1
         same_block = (
             row["chrom"] == current["chrom"]
             and row["strand"] == current["strand"]
@@ -148,19 +141,6 @@ def fuse_overlapping_candidates(
             should_fuse = tumor_overlap >= overlap_ratio_threshold
             if not should_fuse and control_overlap >= overlap_ratio_threshold:
                 should_fuse = True
-            if should_fuse and current["_fused_window_count"] >= max_fused_windows:
-                print(
-                    "Warning: region "
-                    f"{current['chrom']}:{int(current['chromStart'])}-"
-                    f"{int(current['chromEnd'])} ({current['strand']}) already "
-                    f"fused from {current['_fused_window_count']} windows "
-                    f"(max {max_fused_windows}); leaving window "
-                    f"{row.get('window', '')} unmerged despite read-name overlap "
-                    f">= {overlap_ratio_threshold:.0%} to avoid unbounded region "
-                    "growth.",
-                    file=sys.stderr,
-                )
-                should_fuse = False
             if should_fuse:
                 current["chromStart"] = min(current["chromStart"], row["chromStart"])
                 current["chromEnd"] = max(current["chromEnd"], row["chromEnd"])
@@ -176,7 +156,6 @@ def fuse_overlapping_candidates(
                 current["control_discordant_read_count"] = int(
                     len(current["_control_read_names"])
                 )
-                current["_fused_window_count"] += 1
                 continue
         fused_rows.append(current)
         current = row
