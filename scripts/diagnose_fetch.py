@@ -76,6 +76,7 @@ def main():
 
     print("\nrunning the REAL _fusion_rows_for_region() against this region...")
     bam2 = pysam.AlignmentFile(args.bam_path, "rb")
+    bam2_primary = pysam.AlignmentFile(args.bam_path, "rb")
     region = {
         "window": "diagnostic",
         "chrom": args.chrom,
@@ -88,13 +89,14 @@ def main():
     soft_clip_yielded = 0
     supplementary_yielded = 0
 
-    for row in _fusion_rows_for_region(bam2, region, primary_seq_cache):
+    for row in _fusion_rows_for_region(bam2, region, primary_seq_cache, bam2_primary):
         yielded += 1
         if row["chr_primary_align"]:
             supplementary_yielded += 1
         else:
             soft_clip_yielded += 1
     bam2.close()
+    bam2_primary.close()
 
     print(f"rows yielded by _fusion_rows_for_region(): {yielded}")
     print(f"  soft-clip rows: {soft_clip_yielded}")

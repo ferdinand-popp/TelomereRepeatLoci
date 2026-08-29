@@ -97,5 +97,71 @@ def test_supplementary_rows_use_their_own_primary_sequence_not_a_cached_swap(tmp
     assert len(own_clip_rows) == 2
 
 
+def test_a_supplementary_read_does_not_truncate_later_reads_in_the_same_region(
+    tmp_path,
+):
+    """pysam does not support two concurrent fetch() iterators on the same
+    AlignmentFile handle. get_primary_sequence()'s lookup for a
+    supplementary read used to run on the SAME handle driving the outer
+    per-region scan -- a nested bam.fetch() call while that outer scan was
+    still mid-iteration silently corrupted/reset it, so every soft-clipped
+    read positioned *after* the first supplementary read in a region was
+    dropped. Regression-tested with a supplementary read early in the region
+    followed by many plain soft-clipped reads.
+    """
+    bam_path = tmp_path / "reads.bam"
+    header = {"HD": {"VN": "1.6"}, "SQ": [{"SN": "chr1", "LN": 200000}]}
+
+    def _segment(name, pos, cigar, seq, flag):
+        seg = pysam.AlignedSegment()
+        seg.query_name = name
+        seg.query_sequence = seq
+        seg.flag = flag
+        seg.reference_id = 0
+        seg.reference_start = pos
+        seg.mapping_quality = 60
+        seg.cigarstring = cigar
+        seg.query_qualities = pysam.qualitystring_to_array("I" * len(seq))
+        return seg
+
+    # Supplementary read early in the region, pointing (via SA tag) at a
+    # primary locus far away -- the seek distance is what actually disturbs
+    # the outer iterator; a nearby primary locus doesn't reliably trigger
+    # the corruption in a small synthetic BAM.
+    supp = _segment("suppRead", 2000, "20S30M", "N" * 50, flag=0x800)
+    supp.set_tag("SA", "chr1,100001,+,50M,60,0;")
+    primary = _segment("primaryRead", 100000, "50M", "A" * 50, flag=0)
+
+    # Plain soft-clipped reads AFTER the supplementary read in position
+    # order -- these are exactly what got silently dropped.
+    later_clips = [
+        _segment(f"laterRead{i}", 2010 + i * 10, "40M10S", "G" * 40 + "T" * 10, 0)
+        for i in range(5)
+    ]
+
+    # Reads must be written in position order for BAM indexing.
+    reads_by_position = sorted(
+        [supp, primary, *later_clips], key=lambda r: r.reference_start
+    )
+    with pysam.AlignmentFile(bam_path, "wb", header=header) as bam:
+        for seg in reads_by_position:
+            bam.write(seg)
+    pysam.index(str(bam_path))
+
+    candidates = pd.DataFrame(
+        [{"window": "w1", "chrom": "chr1", "chromStart": 1900, "chromEnd": 2100}]
+    )
+    candidate_path = tmp_path / "candidates.tsv"
+    candidates.to_csv(candidate_path, sep="\t", index=False)
+
+    result = find_fusion_reads(str(candidate_path), str(bam_path))
+
+    later_rows = result[result["read_name"].str.startswith("laterRead")]
+    assert len(later_rows) == 5, (
+        "all 5 soft-clipped reads after the supplementary read must still "
+        "be found, not truncated by a corrupted outer fetch() iterator"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

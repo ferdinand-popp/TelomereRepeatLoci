@@ -91,7 +91,7 @@ def expected_pos_fusion(cigar):
     return ""
 
 
-def _primary_reads_at(bam, chrom, pos, cache):
+def _primary_reads_at(primary_bam, chrom, pos, cache):
     """Return {(read_name, is_read1, is_read2): sequence} for non-supplementary,
     non-secondary reads at a 1bp SA-tag locus, fetching it at most once per
     (chrom, pos) for the lifetime of `cache` instead of once per supplementary
@@ -106,7 +106,7 @@ def _primary_reads_at(bam, chrom, pos, cache):
     start0 = max(0, pos - 1)
     # Query exactly the SA-tag primary position in 0-based half-open coordinates.
     end0 = pos
-    for read in bam.fetch(chrom, start0, end0):
+    for read in primary_bam.fetch(chrom, start0, end0):
         if read.is_supplementary or read.is_secondary:
             continue
         seq = read.query_sequence or ""
@@ -118,12 +118,12 @@ def _primary_reads_at(bam, chrom, pos, cache):
 
 
 def get_primary_sequence(
-    bam, sa_read, primary_chr, primary_pos, primary_strand, primary_seq_cache
+    primary_bam, sa_read, primary_chr, primary_pos, primary_strand, primary_seq_cache
 ):
     if not primary_chr or primary_pos <= 0:
         return sa_read.query_sequence or ""
 
-    seqs = _primary_reads_at(bam, primary_chr, primary_pos, primary_seq_cache)
+    seqs = _primary_reads_at(primary_bam, primary_chr, primary_pos, primary_seq_cache)
     seq = seqs.get((sa_read.query_name, sa_read.is_read1, sa_read.is_read2))
     if not seq:
         return sa_read.query_sequence or ""
@@ -196,7 +196,7 @@ def main():
     write_fusion_reads_streaming(args.candidate_region_file, args.bamfile, args.outfile)
 
 
-def _fusion_rows_for_region(bam, region, primary_seq_cache):
+def _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam):
     """Yield soft-clip and supplementary-alignment fusion-read rows for one
     candidate region, without accumulating them anywhere.
 
@@ -204,6 +204,16 @@ def _fusion_rows_for_region(bam, region, primary_seq_cache):
     either, or both, e.g. a supplementary alignment that also has a soft clip)
     -- iterating the window once instead of twice halves the read I/O/parsing
     cost per region.
+
+    `primary_bam` must be a *different* AlignmentFile handle than `bam`, used
+    only for the supplementary branch's primary-sequence lookup
+    (get_primary_sequence). pysam does not support two concurrent fetch()
+    iterators on the same handle: a nested bam.fetch() call on `bam` while
+    the outer `for read in bam.fetch(...)` below is still iterating silently
+    corrupts/resets that outer iterator -- this was happening on every
+    supplementary read and could truncate the rest of the region's scan
+    (observed dropping a region's yield from ~9500 candidate rows to 9 at a
+    high-depth, supplementary-alignment-rich locus).
     """
     window = region.get("window", "")
     chrom = region.get("chrom", "")
@@ -261,7 +271,7 @@ def _fusion_rows_for_region(bam, region, primary_seq_cache):
             primary_pos0 = primary_pos - 1 if primary_pos else 0
             sequence = _strip_nuls(
                 get_primary_sequence(
-                    bam,
+                    primary_bam,
                     read,
                     primary_chr,
                     primary_pos,
@@ -305,13 +315,19 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
     candidate_regions = read_tsv(candidate_region_file).to_dict("records")
 
     bam = pysam.AlignmentFile(bamfile, "rb")
+    # Separate handle for primary-sequence lookups -- see _fusion_rows_for_region's
+    # docstring on why this can't share `bam`'s fetch() iterator.
+    primary_bam = pysam.AlignmentFile(bamfile, "rb")
     primary_seq_cache = {}
     out_rows = []
     try:
         for region in candidate_regions:
-            out_rows.extend(_fusion_rows_for_region(bam, region, primary_seq_cache))
+            out_rows.extend(
+                _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam)
+            )
     finally:
         bam.close()
+        primary_bam.close()
 
     return pd.DataFrame(out_rows)
 
@@ -347,18 +363,24 @@ def write_fusion_reads_streaming(
         out_path.unlink()
 
     bam = pysam.AlignmentFile(bamfile, "rb")
+    # Separate handle for primary-sequence lookups -- see _fusion_rows_for_region's
+    # docstring on why this can't share `bam`'s fetch() iterator.
+    primary_bam = pysam.AlignmentFile(bamfile, "rb")
     primary_seq_cache = {}
     buffer = []
     wrote_header = False
     try:
         for region in candidate_regions:
-            buffer.extend(_fusion_rows_for_region(bam, region, primary_seq_cache))
+            buffer.extend(
+                _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam)
+            )
             if len(buffer) >= flush_rows:
                 wrote_header = _flush_rows(buffer, outfile, wrote_header)
                 buffer = []
         wrote_header = _flush_rows(buffer, outfile, wrote_header)
     finally:
         bam.close()
+        primary_bam.close()
 
     if not wrote_header:
         write_tsv(
