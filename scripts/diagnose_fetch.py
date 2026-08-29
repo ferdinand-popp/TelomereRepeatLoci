@@ -16,10 +16,18 @@ find_fusion_reads.py does, so pass the unexpanded region boundaries.
 """
 
 import argparse
+import inspect
 
 import pysam
 
-from telomererepeatloci.find_fusion_reads import _fusion_rows_for_region
+import telomererepeatloci.find_fusion_reads as ffr
+from telomererepeatloci.find_fusion_reads import (
+    _fusion_rows_for_region,
+    _row_has_bad_encoding,
+    _strip_nuls,
+    alignment_end,
+    clipped_sequences_from_cigar,
+)
 
 
 def main():
@@ -29,6 +37,9 @@ def main():
     parser.add_argument("chrom_start0", type=int, help="candidate region chromStart (0-based)")
     parser.add_argument("chrom_end0", type=int, help="candidate region chromEnd (0-based, exclusive)")
     args = parser.parse_args()
+
+    print(f"find_fusion_reads module loaded from: {inspect.getsourcefile(ffr)}")
+    print(f"WINDOW_EXTENSION = {ffr.WINDOW_EXTENSION}\n")
 
     window_start0 = max(0, args.chrom_start0 - 300 - 1)
     window_end0 = args.chrom_end0 + 300
@@ -93,6 +104,58 @@ def main():
         "the raw fetch() totals -- a big gap there means rows are being silently "
         "dropped somewhere between the read and the yield, not by fetch() itself.)"
     )
+
+    print("\nstep-by-step reproduction of the soft-clip branch's own logic...")
+    bam3 = pysam.AlignmentFile(args.bam_path, "rb")
+    reached_s_check = 0
+    passed_s_check = 0
+    built_row = 0
+    failed_encoding = 0
+    passed_encoding = 0
+
+    for read in bam3.fetch(args.chrom, window_start0, window_end0):
+        if read.is_unmapped:
+            continue
+        reached_s_check += 1
+        cigar = read.cigarstring or ""
+        if "S" not in cigar:
+            continue
+        passed_s_check += 1
+
+        sequence = _strip_nuls(read.query_sequence or "")
+        clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
+        clipped_sequence = _strip_nuls(", ".join(clipped_parts))
+        start0 = read.reference_start
+        end0 = alignment_end(start0, read.cigartuples)
+        row = {
+            "window": "diagnostic",
+            "read_name": read.query_name,
+            "read_1_2": "",
+            "start": start0,
+            "end": end0,
+            "cigar": cigar,
+            "chr_primary_align": "",
+            "coord_primary_align": "",
+            "strand_primary_align": "",
+            "sequence": sequence,
+            "clipped_sequence": clipped_sequence,
+            "part_telomere": "False",
+            "TTAGGG_count": 0,
+            "CCCTAA_count": 0,
+            "expected_pos_fusion": "",
+        }
+        built_row += 1
+        if _row_has_bad_encoding(row):
+            failed_encoding += 1
+        else:
+            passed_encoding += 1
+    bam3.close()
+
+    print(f"  reached (mapped) reads: {reached_s_check}")
+    print(f"  passed 'S' in cigar check: {passed_s_check}")
+    print(f"  rows built (should equal the line above): {built_row}")
+    print(f"  rows failing _row_has_bad_encoding: {failed_encoding}")
+    print(f"  rows passing _row_has_bad_encoding (would be yielded): {passed_encoding}")
 
 
 if __name__ == "__main__":
