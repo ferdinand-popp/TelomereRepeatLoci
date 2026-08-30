@@ -14,7 +14,8 @@ import pandas as pd
 import pysam
 import pytest
 
-from telomererepeatloci.find_fusion_reads import find_fusion_reads
+import telomererepeatloci.find_fusion_reads as ffr
+from telomererepeatloci.find_fusion_reads import _primary_reads_at, find_fusion_reads
 
 
 def _make_bam(path):
@@ -161,6 +162,69 @@ def test_a_supplementary_read_does_not_truncate_later_reads_in_the_same_region(
         "all 5 soft-clipped reads after the supplementary read must still "
         "be found, not truncated by a corrupted outer fetch() iterator"
     )
+
+
+def test_primary_reads_at_caps_reads_per_locus(tmp_path, monkeypatch):
+    """A repeat-collapsed/high-depth SA-tag primary locus can have thousands
+    of overlapping reads, only a handful of which will ever actually be
+    looked up. Uncapped, caching all of them (once per distinct locus, never
+    evicted) is an unbounded memory sink. Verify the per-locus cap is
+    respected instead of scanning/storing everything found."""
+    monkeypatch.setattr(ffr, "MAX_READS_PER_PRIMARY_LOCUS", 3)
+
+    bam_path = tmp_path / "reads.bam"
+    header = {"HD": {"VN": "1.6"}, "SQ": [{"SN": "chr1", "LN": 10000}]}
+
+    def _segment(name, pos):
+        seg = pysam.AlignedSegment()
+        seg.query_name = name
+        seg.query_sequence = "A" * 10
+        seg.flag = 0
+        seg.reference_id = 0
+        seg.reference_start = pos
+        seg.mapping_quality = 60
+        seg.cigarstring = "10M"
+        seg.query_qualities = pysam.qualitystring_to_array("I" * 10)
+        return seg
+
+    # 10 distinct reads all overlapping the same 1bp locus -- far more than
+    # the (monkeypatched) cap of 3.
+    reads = [_segment(f"read{i}", 5000) for i in range(10)]
+    with pysam.AlignmentFile(bam_path, "wb", header=header) as bam:
+        for seg in reads:
+            bam.write(seg)
+    pysam.index(str(bam_path))
+
+    with pysam.AlignmentFile(str(bam_path), "rb") as bam:
+        result = _primary_reads_at(bam, "chr1", 5001, {})
+
+    assert len(result) == 3
+
+
+def test_primary_reads_at_evicts_oldest_cached_locus(monkeypatch):
+    """The primary_seq_cache dict is otherwise never cleared across a whole
+    find_fusion_reads.py run. Verify capping total cached loci actually
+    evicts the oldest entry once the cap is hit, instead of growing
+    unboundedly."""
+    monkeypatch.setattr(ffr, "MAX_CACHED_PRIMARY_LOCI", 2)
+
+    cache = {}
+    # A fake bam whose fetch() always returns no reads -- only cache
+    # bookkeeping is under test here, not real sequence lookup.
+    class _EmptyFetchBam:
+        def fetch(self, chrom, start, end):
+            return iter(())
+
+    bam = _EmptyFetchBam()
+    _primary_reads_at(bam, "chr1", 100, cache)
+    _primary_reads_at(bam, "chr1", 200, cache)
+    assert set(cache.keys()) == {("chr1", 100), ("chr1", 200)}
+
+    _primary_reads_at(bam, "chr1", 300, cache)
+    assert len(cache) == 2
+    assert ("chr1", 100) not in cache, "oldest entry should have been evicted"
+    assert ("chr1", 200) in cache
+    assert ("chr1", 300) in cache
 
 
 if __name__ == "__main__":

@@ -25,6 +25,20 @@ WINDOW_EXTENSION = 300
 # for the entire candidate-region file scales with total reads fetched, not
 # with output size, and can exhaust memory at high coverage.
 FLUSH_ROWS = 5000
+# Max reads collected per SA-tag primary locus in _primary_reads_at(). A
+# repeat-collapsed/high-depth site can have thousands of reads overlapping
+# one exact position, but only a handful of specific (read_name, read1/2)
+# combinations will ever actually be looked up there -- capping the scan
+# bounds memory at exactly the loci that would otherwise blow it up. A read
+# not found within the cap falls back to its own (possibly hard-clip-
+# truncated) sequence, the same fallback already used for a true miss.
+MAX_READS_PER_PRIMARY_LOCUS = 2000
+# Max distinct (chrom, pos) primary loci kept in primary_seq_cache across a
+# whole find_fusion_reads.py run. The cache never otherwise shrinks, so a
+# candidate-region file touching many distinct high-depth loci could grow
+# it unboundedly; FIFO eviction bounds total cache memory at the cost of
+# occasionally re-fetching an evicted-then-revisited locus.
+MAX_CACHED_PRIMARY_LOCI = 5000
 
 
 def read_pair_label(read):
@@ -113,6 +127,11 @@ def _primary_reads_at(primary_bam, chrom, pos, cache):
         if not seq:
             continue
         seqs.setdefault((read.query_name, read.is_read1, read.is_read2), seq)
+        if len(seqs) >= MAX_READS_PER_PRIMARY_LOCUS:
+            break
+
+    if len(cache) >= MAX_CACHED_PRIMARY_LOCI:
+        cache.pop(next(iter(cache)))
     cache[key] = seqs
     return seqs
 
