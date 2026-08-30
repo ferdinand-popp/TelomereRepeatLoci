@@ -15,7 +15,11 @@ import pysam
 import pytest
 
 import telomererepeatloci.find_fusion_reads as ffr
-from telomererepeatloci.find_fusion_reads import _primary_reads_at, find_fusion_reads
+from telomererepeatloci.find_fusion_reads import (
+    _primary_reads_at,
+    find_fusion_reads,
+    write_fusion_reads_streaming,
+)
 
 
 def _make_bam(path):
@@ -225,6 +229,64 @@ def test_primary_reads_at_evicts_oldest_cached_locus(monkeypatch):
     assert ("chr1", 100) not in cache, "oldest entry should have been evicted"
     assert ("chr1", 200) in cache
     assert ("chr1", 300) in cache
+
+
+def test_streaming_flush_bounds_buffer_within_a_single_region(tmp_path, monkeypatch):
+    """A single candidate region can itself yield far more rows than
+    FLUSH_ROWS (e.g. a fused, high-depth/repeat-collapsed locus). The flush
+    check must run per-row, not just once per region via
+    `buffer.extend(generator)` -- otherwise one such region still dumps its
+    entire row set into memory before any flush ever fires, defeating the
+    whole point of streaming."""
+    bam_path = tmp_path / "reads.bam"
+    header = {"HD": {"VN": "1.6"}, "SQ": [{"SN": "chr1", "LN": 10000}]}
+
+    def _segment(name, pos):
+        seg = pysam.AlignedSegment()
+        seg.query_name = name
+        seg.query_sequence = "G" * 40 + "T" * 10
+        seg.flag = 0
+        seg.reference_id = 0
+        seg.reference_start = pos
+        seg.mapping_quality = 60
+        seg.cigarstring = "40M10S"
+        seg.query_qualities = pysam.qualitystring_to_array("I" * 50)
+        return seg
+
+    # 20 soft-clipped reads in one region -- 4x the (monkeypatched) flush
+    # threshold of 5, all from a single candidate region.
+    reads = [_segment(f"read{i}", 1000 + i * 10) for i in range(20)]
+    with pysam.AlignmentFile(bam_path, "wb", header=header) as bam:
+        for seg in reads:
+            bam.write(seg)
+    pysam.index(str(bam_path))
+
+    candidates = pd.DataFrame(
+        [{"window": "w1", "chrom": "chr1", "chromStart": 900, "chromEnd": 1300}]
+    )
+    candidate_path = tmp_path / "candidates.tsv"
+    candidates.to_csv(candidate_path, sep="\t", index=False)
+    outfile = tmp_path / "out.tsv"
+
+    max_buffer_len = 0
+    real_flush_rows = ffr._flush_rows
+
+    def _tracking_flush_rows(rows, outfile, wrote_header):
+        nonlocal max_buffer_len
+        max_buffer_len = max(max_buffer_len, len(rows))
+        return real_flush_rows(rows, outfile, wrote_header)
+
+    monkeypatch.setattr(ffr, "_flush_rows", _tracking_flush_rows)
+
+    write_fusion_reads_streaming(
+        str(candidate_path), str(bam_path), str(outfile), flush_rows=5
+    )
+
+    assert max_buffer_len <= 5, (
+        "buffer grew past FLUSH_ROWS within a single region -- the flush "
+        "check must run per-row, not once per region"
+    )
+    assert len(pd.read_csv(outfile, sep="\t")) == 20
 
 
 if __name__ == "__main__":

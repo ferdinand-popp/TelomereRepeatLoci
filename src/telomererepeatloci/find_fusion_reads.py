@@ -23,7 +23,10 @@ WINDOW_EXTENSION = 300
 # span very wide/high-depth loci (e.g. after window fusion), and each row
 # carries a full read sequence -- buffering the whole result set in memory
 # for the entire candidate-region file scales with total reads fetched, not
-# with output size, and can exhaust memory at high coverage.
+# with output size, and can exhaust memory at high coverage. The flush check
+# must run per-row (not just between regions, e.g. via buffer.extend(generator))
+# or a single high-depth/fused region can still dump its entire row set into
+# `buffer` in one shot before the size check ever fires.
 FLUSH_ROWS = 5000
 # Max reads collected per SA-tag primary locus in _primary_reads_at(). A
 # repeat-collapsed/high-depth site can have thousands of reads overlapping
@@ -390,12 +393,13 @@ def write_fusion_reads_streaming(
     wrote_header = False
     try:
         for region in candidate_regions:
-            buffer.extend(
-                _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam)
-            )
-            if len(buffer) >= flush_rows:
-                wrote_header = _flush_rows(buffer, outfile, wrote_header)
-                buffer = []
+            for row in _fusion_rows_for_region(
+                bam, region, primary_seq_cache, primary_bam
+            ):
+                buffer.append(row)
+                if len(buffer) >= flush_rows:
+                    wrote_header = _flush_rows(buffer, outfile, wrote_header)
+                    buffer = []
         wrote_header = _flush_rows(buffer, outfile, wrote_header)
     finally:
         bam.close()
