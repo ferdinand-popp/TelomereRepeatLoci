@@ -34,8 +34,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("bam_path")
     parser.add_argument("chrom")
-    parser.add_argument("chrom_start0", type=int, help="candidate region chromStart (0-based)")
-    parser.add_argument("chrom_end0", type=int, help="candidate region chromEnd (0-based, exclusive)")
+    parser.add_argument(
+        "chrom_start0", type=int, help="candidate region chromStart (0-based)"
+    )
+    parser.add_argument(
+        "chrom_end0", type=int, help="candidate region chromEnd (0-based, exclusive)"
+    )
     args = parser.parse_args()
 
     print(f"find_fusion_reads module loaded from: {inspect.getsourcefile(ffr)}")
@@ -67,7 +71,9 @@ def main():
 
     bam.close()
 
-    print(f"region searched: {args.chrom}:{window_start0}-{window_end0} (0-based half-open)")
+    print(
+        f"region searched: {args.chrom}:{window_start0}-{window_end0} (0-based half-open)"
+    )
     print("raw bam.fetch() totals:")
     print(f"  total reads: {total}")
     print(f"  unmapped: {unmapped}")
@@ -83,13 +89,11 @@ def main():
         "chromStart": args.chrom_start0,
         "chromEnd": args.chrom_end0,
     }
-    primary_seq_cache = {}
-
     yielded = 0
     soft_clip_yielded = 0
     supplementary_yielded = 0
 
-    for row in _fusion_rows_for_region(bam2, region, primary_seq_cache, bam2_primary):
+    for row in _fusion_rows_for_region(bam2, region, bam2_primary):
         yielded += 1
         if row["chr_primary_align"]:
             supplementary_yielded += 1

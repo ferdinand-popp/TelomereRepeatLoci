@@ -28,20 +28,6 @@ WINDOW_EXTENSION = 300
 # or a single high-depth/fused region can still dump its entire row set into
 # `buffer` in one shot before the size check ever fires.
 FLUSH_ROWS = 5000
-# Max reads collected per SA-tag primary locus in _primary_reads_at(). A
-# repeat-collapsed/high-depth site can have thousands of reads overlapping
-# one exact position, but only a handful of specific (read_name, read1/2)
-# combinations will ever actually be looked up there -- capping the scan
-# bounds memory at exactly the loci that would otherwise blow it up. A read
-# not found within the cap falls back to its own (possibly hard-clip-
-# truncated) sequence, the same fallback already used for a true miss.
-MAX_READS_PER_PRIMARY_LOCUS = 2000
-# Max distinct (chrom, pos) primary loci kept in primary_seq_cache across a
-# whole find_fusion_reads.py run. The cache never otherwise shrinks, so a
-# candidate-region file touching many distinct high-depth loci could grow
-# it unboundedly; FIFO eviction bounds total cache memory at the cost of
-# occasionally re-fetching an evicted-then-revisited locus.
-MAX_CACHED_PRIMARY_LOCI = 5000
 
 
 def read_pair_label(read):
@@ -71,7 +57,7 @@ def clipped_sequences_from_cigar(seq, cigartuples):
     For a record's own query_sequence, hard-clipped (H) bases are absent from
     `seq` entirely, so H must not consume query positions. But for a
     supplementary alignment whose `sequence` has been substituted with the
-    full primary read (see get_primary_sequence), the hard-clipped bases
+    full primary read (see _supp_sequence), the hard-clipped bases
     *are* present in `seq` -- H must then be treated like a soft clip (both
     consuming query space and itself extractable), matching R's
     cigarRangesAlongQuerySpace(ops=c("S","H"), before.hard.clipping=TRUE)
@@ -82,9 +68,7 @@ def clipped_sequences_from_cigar(seq, cigartuples):
         return []
 
     len_without_h = sum(length for op, length in cigartuples if op in READ_CONSUME_OPS)
-    len_with_h = len_without_h + sum(
-        length for op, length in cigartuples if op == 5
-    )
+    len_with_h = len_without_h + sum(length for op, length in cigartuples if op == 5)
     hard_clip_present_in_seq = len_with_h != len_without_h and len(seq) == len_with_h
 
     qpos = 0
@@ -108,50 +92,53 @@ def expected_pos_fusion(cigar):
     return ""
 
 
-def _primary_reads_at(primary_bam, chrom, pos, cache):
-    """Return {(read_name, is_read1, is_read2): sequence} for non-supplementary,
-    non-secondary reads at a 1bp SA-tag locus, fetching it at most once per
-    (chrom, pos) for the lifetime of `cache` instead of once per supplementary
-    read -- fusion breakpoints often have many supplementary alignments
-    pointing back at the same primary locus."""
-    key = (chrom, pos)
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
+def _resolve_primary_sequences(primary_bam, pending_by_locus):
+    """For each (chrom, pos) SA-tag primary locus referenced by this region's
+    supplementary reads, fetch that locus and capture only the sequences of
+    the specific reads pending there (from pending_by_locus), stopping as
+    soon as every one of them has been found.
 
-    seqs = {}
-    start0 = max(0, pos - 1)
-    # Query exactly the SA-tag primary position in 0-based half-open coordinates.
-    end0 = pos
-    for read in primary_bam.fetch(chrom, start0, end0):
-        if read.is_supplementary or read.is_secondary:
-            continue
-        seq = read.query_sequence or ""
-        if not seq:
-            continue
-        seqs.setdefault((read.query_name, read.is_read1, read.is_read2), seq)
-        if len(seqs) >= MAX_READS_PER_PRIMARY_LOCUS:
-            break
+    Unlike scanning a locus generically and capping how much of its pileup
+    to keep, the wanted set here is known up front and is bounded by how
+    many supplementary reads in this region actually reference that locus
+    (typically a handful) -- not by the locus's total read depth. So a read
+    is only ever missing from the result because it genuinely isn't at that
+    locus, never because an arbitrary cap was hit first. Early-exiting once
+    every wanted key is found keeps this cheap on the common case without
+    needing any cap at all.
+    """
+    resolved = {}
+    for (chrom, pos), wanted_keys in pending_by_locus.items():
+        found = {}
+        start0 = max(0, pos - 1)
+        # Query exactly the SA-tag primary position in 0-based half-open coordinates.
+        end0 = pos
+        for read in primary_bam.fetch(chrom, start0, end0):
+            if read.is_supplementary or read.is_secondary:
+                continue
+            key = (read.query_name, read.is_read1, read.is_read2)
+            if key in wanted_keys and key not in found:
+                seq = read.query_sequence or ""
+                if seq:
+                    found[key] = seq
+                    if len(found) >= len(wanted_keys):
+                        break
+        resolved[(chrom, pos)] = found
+    return resolved
 
-    if len(cache) >= MAX_CACHED_PRIMARY_LOCI:
-        cache.pop(next(iter(cache)))
-    cache[key] = seqs
-    return seqs
 
-
-def get_primary_sequence(
-    primary_bam, sa_read, primary_chr, primary_pos, primary_strand, primary_seq_cache
-):
-    if not primary_chr or primary_pos <= 0:
-        return sa_read.query_sequence or ""
-
-    seqs = _primary_reads_at(primary_bam, primary_chr, primary_pos, primary_seq_cache)
-    seq = seqs.get((sa_read.query_name, sa_read.is_read1, sa_read.is_read2))
+def _supp_sequence(meta, resolved):
+    """Return the correctly-stranded primary sequence for one supplementary
+    read's metadata (see _fusion_rows_for_region), falling back to the
+    read's own (possibly hard-clip-truncated) sequence only when the primary
+    read genuinely isn't found at its SA-tag locus."""
+    locus = meta["primary_locus"]
+    seq = resolved.get(locus, {}).get(meta["key"]) if locus is not None else None
     if not seq:
-        return sa_read.query_sequence or ""
+        return meta["own_sequence"]
 
-    supp_strand = "-" if sa_read.is_reverse else "+"
-    if primary_strand != supp_strand:
+    supp_strand = "-" if meta["is_reverse"] else "+"
+    if meta["strand_primary_align"] != supp_strand:
         seq = reverse_complement(seq)
     return seq
 
@@ -218,20 +205,26 @@ def main():
     write_fusion_reads_streaming(args.candidate_region_file, args.bamfile, args.outfile)
 
 
-def _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam):
+def _fusion_rows_for_region(bam, region, primary_bam):
     """Yield soft-clip and supplementary-alignment fusion-read rows for one
-    candidate region, without accumulating them anywhere.
+    candidate region.
 
-    Both row kinds are derived from the same window fetch (a read can produce
-    either, or both, e.g. a supplementary alignment that also has a soft clip)
-    -- iterating the window once instead of twice halves the read I/O/parsing
-    cost per region.
+    Soft-clip rows are self-contained and yielded immediately while scanning
+    the region's window (a read can also be a supplementary alignment at the
+    same time, e.g. one with its own soft clip -- both rows get produced from
+    this same single pass). Supplementary (hard-clip) rows additionally need
+    their SA-tag primary read's full sequence, which requires a second,
+    targeted fetch of that primary locus; those are collected as
+    `pending_by_locus` while scanning and resolved together, once, after the
+    window scan finishes, by _resolve_primary_sequences() -- so multiple
+    supplementary reads sharing one primary locus still cost only one fetch
+    of it, and a read is never dropped just because that locus happens to be
+    deep (see _resolve_primary_sequences's docstring).
 
-    `primary_bam` must be a *different* AlignmentFile handle than `bam`, used
-    only for the supplementary branch's primary-sequence lookup
-    (get_primary_sequence). pysam does not support two concurrent fetch()
-    iterators on the same handle: a nested bam.fetch() call on `bam` while
-    the outer `for read in bam.fetch(...)` below is still iterating silently
+    `primary_bam` must be a *different* AlignmentFile handle than `bam`.
+    pysam does not support two concurrent fetch() iterators on the same
+    handle: a nested bam.fetch() call on `bam` while the outer
+    `for read in bam.fetch(...)` below is still iterating silently
     corrupts/resets that outer iterator -- this was happening on every
     supplementary read and could truncate the rest of the region's scan
     (observed dropping a region's yield from ~9500 candidate rows to 9 at a
@@ -247,6 +240,9 @@ def _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam):
 
     window_start0 = max(0, chrom_start - WINDOW_EXTENSION - 1)
     window_end0 = chrom_end + WINDOW_EXTENSION
+
+    pending_by_locus = {}
+    supp_meta_list = []
 
     for read in bam.fetch(chrom, window_start0, window_end0):
         if read.is_unmapped:
@@ -283,7 +279,8 @@ def _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam):
             if not _row_has_bad_encoding(row):
                 yield row
 
-        # supplementary alignment (hard-clipped candidate)
+        # supplementary alignment (hard-clipped candidate) -- deferred until
+        # the primary sequence has been resolved below.
         if read.is_supplementary:
             try:
                 sa_tag = read.get_tag("SA")
@@ -291,40 +288,59 @@ def _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam):
                 continue
             primary_chr, primary_pos, primary_strand = parse_sa_tag(sa_tag)
             primary_pos0 = primary_pos - 1 if primary_pos else 0
-            sequence = _strip_nuls(
-                get_primary_sequence(
-                    primary_bam,
-                    read,
-                    primary_chr,
-                    primary_pos,
-                    primary_strand,
-                    primary_seq_cache,
-                )
+            key = (read.query_name, read.is_read1, read.is_read2)
+            locus = (
+                (primary_chr, primary_pos) if primary_chr and primary_pos > 0 else None
             )
+            supp_meta_list.append(
+                {
+                    "window": window,
+                    "read_name": read.query_name,
+                    "read_1_2": read_pair_label(read),
+                    "start": start0,
+                    "end": end0,
+                    "cigar": cigar,
+                    "chr_primary_align": primary_chr,
+                    "coord_primary_align": primary_pos0,
+                    "strand_primary_align": primary_strand,
+                    "expected_pos_fusion": expected_pos_fusion(cigar),
+                    "own_sequence": read.query_sequence or "",
+                    "is_reverse": read.is_reverse,
+                    "cigartuples": read.cigartuples,
+                    "key": key,
+                    "primary_locus": locus,
+                }
+            )
+            if locus is not None:
+                pending_by_locus.setdefault(locus, set()).add(key)
 
-            clipped_parts = clipped_sequences_from_cigar(sequence, read.cigartuples)
-            clipped_sequence = _strip_nuls(", ".join(clipped_parts))
-            part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
-            t_count, c_count = telomere_counts(clipped_sequence)
-            row = {
-                "window": window,
-                "read_name": read.query_name,
-                "read_1_2": read_pair_label(read),
-                "start": start0,
-                "end": end0,
-                "cigar": cigar,
-                "chr_primary_align": primary_chr,
-                "coord_primary_align": primary_pos0,
-                "strand_primary_align": primary_strand,
-                "sequence": sequence,
-                "clipped_sequence": clipped_sequence,
-                "part_telomere": str(part_telomere),
-                "TTAGGG_count": t_count,
-                "CCCTAA_count": c_count,
-                "expected_pos_fusion": expected_pos_fusion(cigar),
-            }
-            if not _row_has_bad_encoding(row):
-                yield row
+    resolved = _resolve_primary_sequences(primary_bam, pending_by_locus)
+
+    for meta in supp_meta_list:
+        sequence = _strip_nuls(_supp_sequence(meta, resolved))
+        clipped_parts = clipped_sequences_from_cigar(sequence, meta["cigartuples"])
+        clipped_sequence = _strip_nuls(", ".join(clipped_parts))
+        part_telomere = bool(TELOMERE_PATTERN.search(clipped_sequence))
+        t_count, c_count = telomere_counts(clipped_sequence)
+        row = {
+            "window": meta["window"],
+            "read_name": meta["read_name"],
+            "read_1_2": meta["read_1_2"],
+            "start": meta["start"],
+            "end": meta["end"],
+            "cigar": meta["cigar"],
+            "chr_primary_align": meta["chr_primary_align"],
+            "coord_primary_align": meta["coord_primary_align"],
+            "strand_primary_align": meta["strand_primary_align"],
+            "sequence": sequence,
+            "clipped_sequence": clipped_sequence,
+            "part_telomere": str(part_telomere),
+            "TTAGGG_count": t_count,
+            "CCCTAA_count": c_count,
+            "expected_pos_fusion": meta["expected_pos_fusion"],
+        }
+        if not _row_has_bad_encoding(row):
+            yield row
 
 
 def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
@@ -340,13 +356,10 @@ def find_fusion_reads(candidate_region_file: str, bamfile: str) -> pd.DataFrame:
     # Separate handle for primary-sequence lookups -- see _fusion_rows_for_region's
     # docstring on why this can't share `bam`'s fetch() iterator.
     primary_bam = pysam.AlignmentFile(bamfile, "rb")
-    primary_seq_cache = {}
     out_rows = []
     try:
         for region in candidate_regions:
-            out_rows.extend(
-                _fusion_rows_for_region(bam, region, primary_seq_cache, primary_bam)
-            )
+            out_rows.extend(_fusion_rows_for_region(bam, region, primary_bam))
     finally:
         bam.close()
         primary_bam.close()
@@ -388,14 +401,11 @@ def write_fusion_reads_streaming(
     # Separate handle for primary-sequence lookups -- see _fusion_rows_for_region's
     # docstring on why this can't share `bam`'s fetch() iterator.
     primary_bam = pysam.AlignmentFile(bamfile, "rb")
-    primary_seq_cache = {}
     buffer = []
     wrote_header = False
     try:
         for region in candidate_regions:
-            for row in _fusion_rows_for_region(
-                bam, region, primary_seq_cache, primary_bam
-            ):
+            for row in _fusion_rows_for_region(bam, region, primary_bam):
                 buffer.append(row)
                 if len(buffer) >= flush_rows:
                     wrote_header = _flush_rows(buffer, outfile, wrote_header)
