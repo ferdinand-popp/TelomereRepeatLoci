@@ -130,6 +130,54 @@ def test_drops_region_with_too_many_control_telo_clipped_reads_even_without_matc
     )
 
 
+def test_drops_clean_control_with_no_reads_at_site():
+    # control_all_reads_at_site=0 is a populated value, not missing data --
+    # a "clean" verdict from zero coverage tells you nothing.
+    row = _row(control_all_reads_at_site="0")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            min_control_reads_at_site=3,
+        )
+        is False
+    )
+
+
+def test_keeps_clean_control_at_min_control_reads_threshold():
+    row = _row(control_all_reads_at_site="3")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            min_control_reads_at_site=3,
+        )
+        is True
+    )
+
+
+def test_keeps_clean_control_with_missing_reads_at_site():
+    # No control BAM at all -- blank stays non-disqualifying.
+    row = _row(control_all_reads_at_site="")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            min_control_reads_at_site=3,
+        )
+        is True
+    )
+
+
 def test_filter_regions_reports_counts_and_preserves_columns(capsys):
     df = pd.DataFrame(
         [

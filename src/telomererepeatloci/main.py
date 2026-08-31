@@ -105,6 +105,18 @@ def parse_args():
             "Default: 3."
         ),
     )
+    parser.add_argument(
+        "--min-control-reads-at-site",
+        type=int,
+        default=3,
+        help=(
+            "Minimum control_all_reads_at_site required to trust a 'no "
+            "control telomeric clips at the site' verdict as evidence of "
+            "tumor specificity, used by the site-confidence filtering step. "
+            "Below this, thin control coverage is dropped rather than kept "
+            "on the strength of an uninformative clean result. Default: 3."
+        ),
+    )
     parser.add_argument("--samtoolsbin", default="samtools")
 
     args = parser.parse_args()
@@ -509,6 +521,8 @@ def process_sample(args, scripts_dir):
             str(args.control_max_telo_clipped_at_site),
             "--min-insertion-support",
             str(args.plot_min_support),
+            "--min-control-reads-at-site",
+            str(args.min_control_reads_at_site),
         ]
     )
 

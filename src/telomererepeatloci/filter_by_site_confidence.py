@@ -12,6 +12,7 @@ DEFAULT_MAX_TUMOR_NOISE_RATIO = 0.8
 DEFAULT_CONTROL_MAX_SEQ_DISTANCE = 2
 DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE = 3
 DEFAULT_MIN_INSERTION_SUPPORT = 2.0
+DEFAULT_MIN_CONTROL_READS_AT_SITE = 3
 
 
 def parse_float(value):
@@ -38,14 +39,22 @@ def passes_confidence_filters(
     control_max_seq_distance: int,
     control_max_telo_clipped_at_site: int,
     min_insertion_support: float,
+    min_control_reads_at_site: int = DEFAULT_MIN_CONTROL_READS_AT_SITE,
 ) -> bool:
     """Diagnostic columns from assess_site_confidence.py -> keep/drop decision.
 
     A region with no predicted insertion_site is dropped outright -- it has no
     locus to review or plot, so it can't be "kept" in any meaningful sense.
     For regions that do have an insertion_site, blank/missing diagnostics (no
-    control data, etc.) never cause a drop on their own -- only a computed
-    value that actually exceeds a threshold does.
+    control data, control BAM not given, etc.) never cause a drop on their
+    own -- only a computed value that actually exceeds a threshold does.
+
+    The one exception is a "control looks clean" verdict (zero telomeric
+    clipped reads at the site): that's only meaningful if control actually
+    had enough read depth at the site to show a signal. A populated but thin
+    control_all_reads_at_site (e.g. 0-2 reads) makes the clean verdict
+    uninformative, so it's treated as a drop rather than a pass. A *missing*
+    control_all_reads_at_site (no control BAM) still doesn't cause a drop.
 
     Regions below min_insertion_support are dropped here too, matching the
     make_bed_for_visualization.py threshold, so this table never contains
@@ -64,6 +73,12 @@ def passes_confidence_filters(
 
     control_count = parse_int(row.get("control_telo_clipped_at_insertion_site"))
     if control_count is None or control_count <= 0:
+        control_all_reads = parse_int(row.get("control_all_reads_at_site"))
+        if (
+            control_all_reads is not None
+            and control_all_reads < min_control_reads_at_site
+        ):
+            return False
         return True
 
     control_distance = parse_int(row.get("control_min_seq_distance_to_tumor"))
@@ -80,6 +95,7 @@ def filter_regions(
     control_max_seq_distance: int = DEFAULT_CONTROL_MAX_SEQ_DISTANCE,
     control_max_telo_clipped_at_site: int = DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE,
     min_insertion_support: float = DEFAULT_MIN_INSERTION_SUPPORT,
+    min_control_reads_at_site: int = DEFAULT_MIN_CONTROL_READS_AT_SITE,
 ) -> pd.DataFrame:
     rows = df.to_dict("records")
     kept = [
@@ -91,6 +107,7 @@ def filter_regions(
             control_max_seq_distance,
             control_max_telo_clipped_at_site,
             min_insertion_support,
+            min_control_reads_at_site,
         )
     ]
     print(f"Confidence filter: kept {len(kept)} of {len(rows)} regions.")
@@ -127,6 +144,19 @@ def main():
             "Default: 2."
         ),
     )
+    parser.add_argument(
+        "--min-control-reads-at-site",
+        type=int,
+        default=DEFAULT_MIN_CONTROL_READS_AT_SITE,
+        help=(
+            "Minimum control_all_reads_at_site required to trust a 'no control "
+            "telomeric clips at the site' verdict as evidence of tumor "
+            "specificity. Below this, control coverage is too thin for the "
+            "absence of a clip to mean anything, so the region is dropped. "
+            "Does not apply when control_all_reads_at_site is missing "
+            "entirely (e.g. no control BAM). Default: 3."
+        ),
+    )
     args = parser.parse_args()
 
     df = filter_regions(
@@ -135,6 +165,7 @@ def main():
         args.control_max_seq_distance,
         args.control_max_telo_clipped_at_site,
         args.min_insertion_support,
+        args.min_control_reads_at_site,
     )
     write_tsv(df, args.outfile, list(df.columns))
 

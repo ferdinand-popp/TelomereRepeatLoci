@@ -95,6 +95,7 @@ def _base_args(tmp_path, use_control=False):
         max_tumor_noise_ratio=0.8,
         control_max_seq_distance=2,
         control_max_telo_clipped_at_site=2,
+        min_control_reads_at_site=3,
         samtoolsbin="samtools",
     )
 
