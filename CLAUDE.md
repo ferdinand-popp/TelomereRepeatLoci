@@ -13,7 +13,7 @@ clipped-read analysis to a final annotated candidate-region table and IGV-like p
 There used to be a Snakemake + R implementation of this workflow; it has been fully replaced by
 this Python CLI. There is no `Snakefile`, no R scripts, and no YAML pipeline config on `main`
 anymore — do not reintroduce assumptions from that era. The old Snakemake/R version is preserved
-on the `copilot/create-readme-and-update-setup` branch for reference, not for active development.
+on the `legacy/r-snakemake-workflow` branch for reference, not for active development.
 
 ## Commands
 
