@@ -89,9 +89,7 @@ def merge_adjacent_tumor_windows(df: pd.DataFrame) -> pd.DataFrame:
             current["_control_read_names"] = (
                 current["_control_read_names"] | row["_control_read_names"]
             )
-            current["tumor_discordant_read_count"] = len(
-                current["_tumor_read_names"]
-            )
+            current["tumor_discordant_read_count"] = len(current["_tumor_read_names"])
             current["control_discordant_read_count"] = len(
                 current["_control_read_names"]
             )

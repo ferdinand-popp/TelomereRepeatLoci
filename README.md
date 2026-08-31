@@ -147,7 +147,7 @@ it (the unfiltered table from step 6 is also always kept, so nothing is lost). A
   **and either** their sequence is close enough to tumor's to count as a match
   (`control_min_seq_distance_to_tumor <= --control-max-seq-distance`, default `2`), **or** there are simply
   too many of them regardless of sequence similarity (`control_telo_clipped_at_insertion_site >
-  --control-max-telo-clipped-at-site`, default `2`).
+  --control-max-telo-clipped-at-site`, default `3`).
 
 For regions that do have an `insertion_site`, blank/missing diagnostics (e.g. no control BAM) never cause
 a drop on their own — only a computed value that actually exceeds a threshold does. These defaults are a
@@ -292,7 +292,7 @@ You can still override this with `--output-dir`.
 | `--site-window` | No | `100` | Flank (bp) around `insertion_site` used for the site-level confidence diagnostics (depth and clipped-read collection) |
 | `--max-tumor-noise-ratio` | No | `0.8` | Max allowed `tumor_noise_ratio` before a region is dropped by the confidence-filtering step |
 | `--control-max-seq-distance` | No | `2` | Max Hamming distance (12 bp at the breakpoint) between control/tumor clipped sequences to count as a germline match, used by the confidence-filtering step |
-| `--control-max-telo-clipped-at-site` | No | `2` | Max telomeric clipped reads allowed in control at the insertion site regardless of sequence match, used by the confidence-filtering step |
+| `--control-max-telo-clipped-at-site` | No | `3` | Max telomeric clipped reads allowed in control at the insertion site regardless of sequence match, used by the confidence-filtering step |
 | `--samtoolsbin` | No | `samtools` | Path/name of the samtools binary (kept for compatibility; visualization uses pysam directly) |
 
 ## Notes
