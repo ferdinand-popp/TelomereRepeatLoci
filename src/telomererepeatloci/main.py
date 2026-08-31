@@ -117,6 +117,19 @@ def parse_args():
             "on the strength of an uninformative clean result. Default: 3."
         ),
     )
+    parser.add_argument(
+        "--max-reads-at-site",
+        type=int,
+        default=1600,
+        help=(
+            "Maximum all_reads_at_site or control_all_reads_at_site allowed "
+            "before a region is dropped as a collapsed-repeat/mapping-"
+            "artifact pileup, used by the site-confidence filtering step. "
+            "visualize_telomere_insertions.py silently skips plotting once "
+            "either side's read count in the region reaches 3000, so "
+            "candidates this deep would never render anyway. Default: 1600."
+        ),
+    )
     parser.add_argument("--samtoolsbin", default="samtools")
 
     args = parser.parse_args()
@@ -523,6 +536,8 @@ def process_sample(args, scripts_dir):
             str(args.plot_min_support),
             "--min-control-reads-at-site",
             str(args.min_control_reads_at_site),
+            "--max-reads-at-site",
+            str(args.max_reads_at_site),
         ]
     )
 

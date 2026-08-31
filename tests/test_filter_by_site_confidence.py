@@ -178,6 +178,51 @@ def test_keeps_clean_control_with_missing_reads_at_site():
     )
 
 
+def test_drops_region_with_tumor_reads_above_max_reads_at_site():
+    row = _row(all_reads_at_site="1601")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            max_reads_at_site=1600,
+        )
+        is False
+    )
+
+
+def test_keeps_region_at_max_reads_at_site_threshold():
+    row = _row(all_reads_at_site="1600")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            max_reads_at_site=1600,
+        )
+        is True
+    )
+
+
+def test_drops_region_with_control_reads_above_max_reads_at_site():
+    row = _row(control_all_reads_at_site="1601")
+    assert (
+        passes_confidence_filters(
+            row,
+            max_tumor_noise_ratio=0.8,
+            control_max_seq_distance=2,
+            control_max_telo_clipped_at_site=2,
+            min_insertion_support=2,
+            max_reads_at_site=1600,
+        )
+        is False
+    )
+
+
 def test_filter_regions_reports_counts_and_preserves_columns(capsys):
     df = pd.DataFrame(
         [

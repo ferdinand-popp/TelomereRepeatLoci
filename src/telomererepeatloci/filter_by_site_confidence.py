@@ -13,6 +13,7 @@ DEFAULT_CONTROL_MAX_SEQ_DISTANCE = 2
 DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE = 3
 DEFAULT_MIN_INSERTION_SUPPORT = 2.0
 DEFAULT_MIN_CONTROL_READS_AT_SITE = 3
+DEFAULT_MAX_READS_AT_SITE = 1600
 
 
 def parse_float(value):
@@ -40,6 +41,7 @@ def passes_confidence_filters(
     control_max_telo_clipped_at_site: int,
     min_insertion_support: float,
     min_control_reads_at_site: int = DEFAULT_MIN_CONTROL_READS_AT_SITE,
+    max_reads_at_site: int = DEFAULT_MAX_READS_AT_SITE,
 ) -> bool:
     """Diagnostic columns from assess_site_confidence.py -> keep/drop decision.
 
@@ -56,6 +58,11 @@ def passes_confidence_filters(
     uninformative, so it's treated as a drop rather than a pass. A *missing*
     control_all_reads_at_site (no control BAM) still doesn't cause a drop.
 
+    A pileup of thousands of reads at one site (collapsed-repeat/mapping
+    artifact loci) is dropped outright: visualize_telomere_insertions.py's
+    plot_region silently skips plotting once either side's read count in the
+    region reaches 3000, so a candidate that deep would never render anyway.
+
     Regions below min_insertion_support are dropped here too, matching the
     make_bed_for_visualization.py threshold, so this table never contains
     rows that silently never make it into a plot.
@@ -71,12 +78,22 @@ def passes_confidence_filters(
     if noise_ratio is not None and noise_ratio > max_tumor_noise_ratio:
         return False
 
+    all_reads_at_site = parse_int(row.get("all_reads_at_site"))
+    if all_reads_at_site is not None and all_reads_at_site > max_reads_at_site:
+        return False
+
+    control_all_reads_at_site = parse_int(row.get("control_all_reads_at_site"))
+    if (
+        control_all_reads_at_site is not None
+        and control_all_reads_at_site > max_reads_at_site
+    ):
+        return False
+
     control_count = parse_int(row.get("control_telo_clipped_at_insertion_site"))
     if control_count is None or control_count <= 0:
-        control_all_reads = parse_int(row.get("control_all_reads_at_site"))
         if (
-            control_all_reads is not None
-            and control_all_reads < min_control_reads_at_site
+            control_all_reads_at_site is not None
+            and control_all_reads_at_site < min_control_reads_at_site
         ):
             return False
         return True
@@ -96,6 +113,7 @@ def filter_regions(
     control_max_telo_clipped_at_site: int = DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE,
     min_insertion_support: float = DEFAULT_MIN_INSERTION_SUPPORT,
     min_control_reads_at_site: int = DEFAULT_MIN_CONTROL_READS_AT_SITE,
+    max_reads_at_site: int = DEFAULT_MAX_READS_AT_SITE,
 ) -> pd.DataFrame:
     rows = df.to_dict("records")
     kept = [
@@ -108,6 +126,7 @@ def filter_regions(
             control_max_telo_clipped_at_site,
             min_insertion_support,
             min_control_reads_at_site,
+            max_reads_at_site,
         )
     ]
     print(f"Confidence filter: kept {len(kept)} of {len(rows)} regions.")
@@ -157,6 +176,19 @@ def main():
             "entirely (e.g. no control BAM). Default: 3."
         ),
     )
+    parser.add_argument(
+        "--max-reads-at-site",
+        type=int,
+        default=DEFAULT_MAX_READS_AT_SITE,
+        help=(
+            "Maximum all_reads_at_site or control_all_reads_at_site allowed "
+            "before a region is dropped as a collapsed-repeat/mapping-"
+            "artifact pileup. visualize_telomere_insertions.py silently "
+            "skips plotting once either side's read count in the region "
+            "reaches 3000, so candidates this deep would never render "
+            "anyway. Default: 1600."
+        ),
+    )
     args = parser.parse_args()
 
     df = filter_regions(
@@ -166,6 +198,7 @@ def main():
         args.control_max_telo_clipped_at_site,
         args.min_insertion_support,
         args.min_control_reads_at_site,
+        args.max_reads_at_site,
     )
     write_tsv(df, args.outfile, list(df.columns))
 

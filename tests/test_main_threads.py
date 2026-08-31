@@ -96,6 +96,7 @@ def _base_args(tmp_path, use_control=False):
         control_max_seq_distance=2,
         control_max_telo_clipped_at_site=2,
         min_control_reads_at_site=3,
+        max_reads_at_site=1600,
         samtoolsbin="samtools",
     )
 
