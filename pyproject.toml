@@ -1,6 +1,6 @@
 [project]
 name = "telomererepeatloci"
-version = "0.1.0"
+version = "0.2.0"
 description = "Analyze telomere repeat loci in genomic sequences."
 readme = "README.md"
 authors = [

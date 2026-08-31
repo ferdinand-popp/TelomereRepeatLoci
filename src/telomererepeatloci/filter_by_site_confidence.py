@@ -10,7 +10,8 @@ from pipeline.tables import read_tsv, write_tsv
 EMPTY_VALUES = {"", "NA", "NaN", "nan", "None", None}
 DEFAULT_MAX_TUMOR_NOISE_RATIO = 0.8
 DEFAULT_CONTROL_MAX_SEQ_DISTANCE = 2
-DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE = 2
+DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE = 3
+DEFAULT_MIN_INSERTION_SUPPORT = 2.0
 
 
 def parse_float(value):
@@ -36,6 +37,7 @@ def passes_confidence_filters(
     max_tumor_noise_ratio: float,
     control_max_seq_distance: int,
     control_max_telo_clipped_at_site: int,
+    min_insertion_support: float,
 ) -> bool:
     """Diagnostic columns from assess_site_confidence.py -> keep/drop decision.
 
@@ -44,8 +46,16 @@ def passes_confidence_filters(
     For regions that do have an insertion_site, blank/missing diagnostics (no
     control data, etc.) never cause a drop on their own -- only a computed
     value that actually exceeds a threshold does.
+
+    Regions below min_insertion_support are dropped here too, matching the
+    make_bed_for_visualization.py threshold, so this table never contains
+    rows that silently never make it into a plot.
     """
     if row.get("insertion_site") in EMPTY_VALUES:
+        return False
+
+    support = parse_int(row.get("reads_supporting_insertion_pos")) or 0
+    if support < min_insertion_support:
         return False
 
     noise_ratio = parse_float(row.get("tumor_noise_ratio"))
@@ -69,6 +79,7 @@ def filter_regions(
     max_tumor_noise_ratio: float = DEFAULT_MAX_TUMOR_NOISE_RATIO,
     control_max_seq_distance: int = DEFAULT_CONTROL_MAX_SEQ_DISTANCE,
     control_max_telo_clipped_at_site: int = DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE,
+    min_insertion_support: float = DEFAULT_MIN_INSERTION_SUPPORT,
 ) -> pd.DataFrame:
     rows = df.to_dict("records")
     kept = [
@@ -79,6 +90,7 @@ def filter_regions(
             max_tumor_noise_ratio,
             control_max_seq_distance,
             control_max_telo_clipped_at_site,
+            min_insertion_support,
         )
     ]
     print(f"Confidence filter: kept {len(kept)} of {len(rows)} regions.")
@@ -104,6 +116,17 @@ def main():
         type=int,
         default=DEFAULT_CONTROL_MAX_TELO_CLIPPED_AT_SITE,
     )
+    parser.add_argument(
+        "--min-insertion-support",
+        type=float,
+        default=DEFAULT_MIN_INSERTION_SUPPORT,
+        help=(
+            "Minimum reads_supporting_insertion_pos required to keep a region. "
+            "Should match --plot-min-support so this table never contains "
+            "regions that make_bed_for_visualization.py would silently drop. "
+            "Default: 2."
+        ),
+    )
     args = parser.parse_args()
 
     df = filter_regions(
@@ -111,6 +134,7 @@ def main():
         args.max_tumor_noise_ratio,
         args.control_max_seq_distance,
         args.control_max_telo_clipped_at_site,
+        args.min_insertion_support,
     )
     write_tsv(df, args.outfile, list(df.columns))
 

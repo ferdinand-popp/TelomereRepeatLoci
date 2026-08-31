@@ -97,12 +97,12 @@ def parse_args():
     parser.add_argument(
         "--control-max-telo-clipped-at-site",
         type=int,
-        default=2,
+        default=3,
         help=(
             "Maximum number of telomeric clipped reads allowed in control at "
             "the insertion site (regardless of sequence match) before a "
             "region is dropped by the site-confidence filtering step. "
-            "Default: 2."
+            "Default: 3."
         ),
     )
     parser.add_argument("--samtoolsbin", default="samtools")
@@ -507,6 +507,8 @@ def process_sample(args, scripts_dir):
             str(args.control_max_seq_distance),
             "--control-max-telo-clipped-at-site",
             str(args.control_max_telo_clipped_at_site),
+            "--min-insertion-support",
+            str(args.plot_min_support),
         ]
     )
 
