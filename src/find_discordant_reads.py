@@ -3,7 +3,7 @@
 #!/usr/bin/python
 
 # Usage: source activate telomereEnv
-#        python /home/sieverli/Code/telomere_insertion_analysis/snakemake_telomere_insertions/src/find_discordant_reads.py \
+#        python find_discordant_reads.py \
 #                -i <*_filtered_intratelomeric.bam resulting from TelomereHunter> \
 #                -o <*_tumor_telomere_insertions.tsv output file>
 # Description: extracts read names and positions of mates for reads that fullfill the following criteria:

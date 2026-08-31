@@ -19,7 +19,7 @@ option_list <- list(
   make_option(c("-o", "--outFile"), type = "character", default = NULL,
               help = "Output file", metavar = "character"),
   make_option(c("-f", "--function_file"), type = "character",
-              default = "/abi/data/sieverling/global_scripts/functions.R",
+              default = "/path/to/functions.R",
               help = "File with R functions [default= %default]", metavar = "character")
 )
 
