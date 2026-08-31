@@ -103,70 +103,82 @@ def add_mate_mapq_records(
         return pd.DataFrame(columns=DISCORDANT_READS_WITH_MAPQ_COLUMNS)
 
     bam_for_processing = ensure_bam_index(bam_path)
-    output_rows = []
+    output_rows: List[dict] = [None] * len(table_df)
+    ref_length_cache: dict = {}
 
     with pysam.AlignmentFile(bam_for_processing, "rb") as bam:
         contigs = set(bam.references)
 
-        for record in table_df.to_dict("records"):
+        # Resolve/validate every row up front and defer the actual bam.fetch()
+        # calls to a second pass, sorted by (chrom, position). Doing the
+        # fetches in genome order -- instead of the table's original,
+        # effectively random order -- turns scattered BGZF seeks into a
+        # forward-moving scan that reuses recently-decompressed blocks
+        # instead of re-reading them on every lookup.
+        fetch_queue = []
+        for orig_index, record in enumerate(table_df.to_dict("records")):
             read_name_raw = record.get("read_name", "")
-            read_name_norm = record.get("_read_name_norm", "")
             chromosome_in = record.get("mate_chr", "")
             chrom_base = record.get("_chrom_base", "")
             pos0 = record.get("_pos0")
+
+            row = {
+                "read_name": read_name_raw,
+                "mate_chr": "",
+                "mate_position": "",
+                "mate_mapq": "",
+                "mate_strand": "",
+                "status": "read_not_found",
+            }
+
+            if chrom_base not in chromosome_list:
+                row["status"] = "chr_not_allowed"
+                output_rows[orig_index] = row
+                continue
+
+            chrom_resolved = resolve_contig(chromosome_in, contigs)
+            if chrom_resolved is None:
+                row["status"] = "chr_not_in_bam"
+                output_rows[orig_index] = row
+                continue
+
+            if pd.isna(pos0):
+                row["status"] = "bad_pos"
+                output_rows[orig_index] = row
+                continue
+
+            fetch_queue.append(
+                (
+                    chrom_resolved,
+                    int(pos0),
+                    orig_index,
+                    read_name_raw,
+                    record.get("_read_name_norm", ""),
+                )
+            )
+
+        fetch_queue.sort(key=lambda item: (item[0], item[1]))
+
+        for (
+            chrom_resolved,
+            pos0,
+            orig_index,
+            read_name_raw,
+            read_name_norm,
+        ) in fetch_queue:
+            contig_len = ref_length_cache.get(chrom_resolved)
+            if contig_len is None:
+                contig_len = bam.get_reference_length(chrom_resolved)
+                ref_length_cache[chrom_resolved] = contig_len
+
+            start0 = max(0, pos0 - window_bp)
+            end0 = min(contig_len, pos0 + window_bp)
 
             mate_chr = ""
             mate_pos = ""
             mate_mapq = ""
             mate_strand = ""
             status = "read_not_found"
-
-            if chrom_base not in chromosome_list:
-                status = "chr_not_allowed"
-                output_rows.append(
-                    {
-                        "read_name": read_name_raw,
-                        "mate_chr": mate_chr,
-                        "mate_position": mate_pos,
-                        "mate_mapq": mate_mapq,
-                        "mate_strand": mate_strand,
-                        "status": status,
-                    }
-                )
-                continue
-
-            chrom_resolved = resolve_contig(chromosome_in, contigs)
-            if chrom_resolved is None:
-                status = "chr_not_in_bam"
-                output_rows.append(
-                    {
-                        "read_name": read_name_raw,
-                        "mate_chr": mate_chr,
-                        "mate_position": mate_pos,
-                        "mate_mapq": mate_mapq,
-                        "mate_strand": mate_strand,
-                        "status": status,
-                    }
-                )
-                continue
-
-            if pd.isna(pos0):
-                status = "bad_pos"
-                output_rows.append(
-                    {
-                        "read_name": read_name_raw,
-                        "mate_chr": mate_chr,
-                        "mate_position": mate_pos,
-                        "mate_mapq": mate_mapq,
-                        "mate_strand": mate_strand,
-                        "status": status,
-                    }
-                )
-                continue
-
-            contig_len = bam.get_reference_length(chrom_resolved)
-            start0 = max(0, int(pos0) - window_bp)
-            end0 = min(contig_len, int(pos0) + window_bp)
 
             found = False
             try:
@@ -199,16 +211,14 @@ def add_mate_mapq_records(
                 mate_strand = ""
                 status = "fetch_error"
 
-            output_rows.append(
-                {
-                    "read_name": read_name_raw,
-                    "mate_chr": mate_chr,
-                    "mate_position": mate_pos,
-                    "mate_mapq": mate_mapq,
-                    "mate_strand": mate_strand,
-                    "status": status,
-                }
-            )
+            output_rows[orig_index] = {
+                "read_name": read_name_raw,
+                "mate_chr": mate_chr,
+                "mate_position": mate_pos,
+                "mate_mapq": mate_mapq,
+                "mate_strand": mate_strand,
+                "status": status,
+            }
 
     return pd.DataFrame(output_rows)
 
