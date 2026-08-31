@@ -297,10 +297,27 @@ You can still override this with `--output-dir`.
 
 ## Notes
 
-- The scripts in `src/` are orchestrated by `main.py`.
-- Legacy R helper scripts were removed; the workflow now uses Python scripts only.
+- `main.py`'s `parse_args()` defines the CLI surface, then `process_sample()` runs each pipeline
+  step above as a subprocess in a fixed, straight-line sequence (no DAG/scheduler), passing each
+  step's output file as the next step's input. An `if use_control:` branch duplicates the
+  tumor-only discordant-read/clipped-read steps for the control sample when `--control-bam` is
+  given; when it isn't, several downstream scripts receive the literal string `"NULL"` in place of
+  a control file path, which they treat as "no control data" rather than a missing-file error.
+- `src/pipeline/tables.py` holds shared TSV column-name constants (`WINDOWS_COLUMNS`,
+  `FUSION_READS_COLUMNS`, etc.) and `read_tsv`/`write_tsv`/`sanitize_tsv_values` helpers for
+  consistent, null-byte-stripped TSV I/O, used by all the pipeline scripts above.
+- If you change a pipeline script's CLI (positional args or flags), update the corresponding
+  `run_command([...])` call in `main.py:process_sample` to match — argument order there must line
+  up exactly with the script's own `argparse` definition, since most steps take positional args,
+  not flags.
+- There used to be a Snakemake + R implementation of this workflow; it has been fully replaced by
+  this Python CLI (no `Snakefile`, no R scripts, no YAML pipeline config on `main`). The old
+  Snakemake/R version is preserved on the `legacy/r-snakemake-workflow` branch for reference, not
+  for active development.
 - `--tel-tumor-bam` and `--tel-control-bam` can be any BAM you want to screen (not limited to TelomereHunter outputs).
-- Discordant read screening uses overlapping 1 kb windows with a 500 bp step.
+- Discordant read screening uses non-overlapping, floor-based 1 kb windows, with adjacent
+  same-chrom/strand windows merged before thresholding when both have tumor support (see step 2
+  above).
 - When `--control-bam` is given, the discordant-read and clipped-read steps run the tumor and
   control branches concurrently (up to 2 threads) instead of back-to-back, since neither branch
   needs the other's output until a later joining step. Each branch's subprocess output is
