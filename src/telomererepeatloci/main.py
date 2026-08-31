@@ -507,6 +507,8 @@ def process_sample(args, scripts_dir):
             str(args.control_max_seq_distance),
             "--control-max-telo-clipped-at-site",
             str(args.control_max_telo_clipped_at_site),
+            "--min-insertion-support",
+            str(args.plot_min_support),
         ]
     )
 
