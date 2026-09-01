@@ -271,6 +271,17 @@ TelomereHunter output directory:
 `<telomerehunter-dir>_TelomereRepeatLoci`.
 You can still override this with `--output-dir`.
 
+## Manual annotations of insertion candidates
+
+Use the Jupyter Notebook to screen and annotate all sites from a run and get the results documented
+```bash
+uv sync --group notebook
+
+uv run jupyter lab
+```
+Use the exposed endpoint with jupyter lab and adapt the paths to the plot files and the _confidence_filtered.tsv files where results should be documented. Then use the PASS or FAIL buttons or fail with comment.
+
+
 ### Command-line options
 
 | Flag | Required | Default | Description |
