@@ -91,6 +91,31 @@ Assuming that the telomere sequence at the repeat locus consists exclusively of 
 #### 5. Make IGV-like plot
 To rule out remaining false positives, each telomere repeat locus should be checked manually. To facilitate this process, Integrative Genomics Viewer (IGV)-like plots of each telomere repeat locus are made. The script `make_bed_for_visualization.py` makes tables in BED format that contain the reference genome start and end positions used for the plots, which are 100 bp up- and downstream of the telomere repeat locus. This table is then used as input for the script visualize_telomere_insertions.py. The script was adapted from [here](https://github.com/DKFZ-ODCF/IndelCallingWorkflow/blob/master/resources/analysisTools/indelCallingWorkflow/visualize.py). Given the alignment BAM files of the tumor and control sample, the script generates a PDF file for each genomic region in the input BED file, in which the reads surrounding the telomere repeat loci are displayed in the tumor and in the control sample. Moreover, panels with the coverage in the region are plotted. Several new features were added to the original script: the discordant reads obtained in previous steps of the TelomereRepeatLoci pipeline are highlighted, hard- clipped bases are obtained from the primary alignments and displayed, non-telomeric clipped bases are transparent, while telomeric clipped bases remain opaque. With the resulting images, tumor and control sample can easily be compared and artifact-prone regions, e.g. with a lot of clipped reads, can be identified.
 
+##### Reading the plots
+
+Each plot stacks two panels vertically — control on top (if `--control-bam` was given), tumor below — each made of a coverage track above a read track, plus an optional annotation track at the bottom if `--annotations` is given. A pair of thin black vertical lines marks the predicted `insertion_site` in every track.
+
+**Coverage track** (narrow strip above each read track): a stacked depth histogram in three shades of blue, drawn from outside in. Light blue is the depth of the full read footprint, including soft-/hard-clipped ends; dark blue is the depth of aligned-or-deleted (`M`/`D`) bases only, i.e. excluding clipped ends; blue is the depth of matched/mismatched (`M`) bases only, i.e. also excluding deletions. Where the light-blue band is visibly wider than the dark blue underneath it, reads are clipping at that position instead of continuing to align — the depth-track signature of a fusion junction.
+
+**Read track**: one horizontal bar per read (rows are packed to avoid overlap).
+- Bar shade shows whether the read matches the sample's discordant-read table (`--colored_reads_tumor`/`--colored_reads_control`, from step 2): dark gray = exact match (read name + strand), medium gray = partial (read-name-only) match, light gray = not a flagged discordant read.
+- A small triangular arrowhead at one end of the bar shows the read's mapped strand.
+- Deletions (`D` in the CIGAR) are drawn as a solid dark-gray block within the bar.
+- Insertions (`I`) are drawn as a small open (unfilled) rectangle.
+- Soft- and hard-clipped bases at the read ends are colored by base identity (see table below) and are **opaque if that read's clipped sequence contains a telomere repeat motif (`TTAGGG`/`CCCTAA`)**, or **faint/translucent if it does not**. Many reads with opaque, colorful clip ends lining up at the same position is the visual signature of a real telomere repeat locus; translucent clipping is more likely unrelated soft-clip noise.
+
+**Base-pair axis**: the x-axis tick labels under each read track show the reference base at each position, colored by base identity; clipped bases in the read track use the same base-color mapping, in a lighter/pastel shade:
+
+| Base | Axis tick color | Clipped-base fill color |
+|------|------------------|--------------------------|
+| A | green `#009600` | light green `#4DE34D` |
+| C | blue `#3030fe` | lavender `#7D7DFF` |
+| G | orange `#d17105` | light orange `#FFBE52` |
+| T | red `#ff0000` | light red `#FF4D4D` |
+| N (unresolved base / beyond chromosome end) | cyan `#00ffff` | cyan `#00ffff` |
+
+**Annotation track** (only present if `--annotations` is given): gray bars with a centered label for each feature from the tabix-indexed annotation file that overlaps the plotted region, titled with the annotation file's name.
+
 #### 6. Site-level confidence diagnostics
 
 For each candidate region with a predicted `insertion_site`, `assess_site_confidence.py` adds a set of
