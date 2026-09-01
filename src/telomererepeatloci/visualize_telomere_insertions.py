@@ -143,6 +143,7 @@ class ReferenceBuffer(object):
     def __init__(self, filename, chromosome):
         self.fasta = pysam.FastaFile(filename)
         self.chromosome = chromosome
+        self.chrom_length = self.fasta.get_reference_length(chromosome)
         self.offset = 0
         self.sequence = ""
 
@@ -151,11 +152,15 @@ class ReferenceBuffer(object):
             return self.sequence[pos - self.offset]
 
         region_start = max(0, pos - 1000)
-        region_end = pos + 1001
+        region_end = min(self.chrom_length, pos + 1001)
         seq = self.fasta.fetch(self.chromosome, region_start, region_end).upper()
         self.offset = region_start
         self.sequence = seq
-        return self.sequence[pos - self.offset]
+
+        idx = pos - self.offset
+        if 0 <= idx < len(self.sequence):
+            return self.sequence[idx]
+        return "N"
 
 
 _TABIX_HANDLE = None
