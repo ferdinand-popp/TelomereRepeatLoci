@@ -35,6 +35,7 @@ dev = [
 notebook = [
     "jupyterlab>=4",
     "ipywidgets>=8",
+    "ipyevents>=2.0",
     "pymupdf>=1.24",
     "pillow>=10",
 ]
